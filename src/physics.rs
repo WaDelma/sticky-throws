@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-use crate::Throwable;
+use crate::{Destroyer, Throwable};
 
 pub struct Hooks;
 
@@ -23,6 +23,17 @@ impl<'a> PhysicsHooksWithQuery<&'a ImpulseJoint> for Hooks {
     }
 }
 
+fn get_recursively<T>(world: &World, e: Entity) -> Option<(&T, Entity)>
+where
+    T: Component,
+{
+    world.get::<T>(e).map(|t| (t, e)).or_else(|| {
+        world
+            .get::<Parent>(e)
+            .and_then(|parent| get_recursively(world, parent.get()))
+    })
+}
+
 pub fn handle_collisions(
     mut commands: Commands,
     world: &World,
@@ -32,54 +43,70 @@ pub fn handle_collisions(
     for collision_event in collision_events.iter() {
         match collision_event {
             CollisionEvent::Started(a, b, _) => {
-                if world.get::<Throwable>(*a).is_none() || world.get::<Throwable>(*b).is_none() {
-                    // Colliding entities weren't thrown objects and so we don't glue them together
-                    continue;
-                }
-                if connected_by_impulse_joint(|e| world.get::<ImpulseJoint>(e), *a, *b) {
-                    // Objects are already glued together
-                    continue;
-                }
+                if let (Some((_, e1)), Some((_, e2))) = (
+                    get_recursively::<Throwable>(world, *a),
+                    get_recursively::<Throwable>(world, *b),
+                ) {
+                    if connected_by_impulse_joint(|e| world.get::<ImpulseJoint>(e), e1, e2) {
+                        // Objects are already glued together
+                        continue;
+                    }
 
-                let get_rotation = |e| {
-                    world
-                        .get::<Transform>(e)
-                        .map(|t| t.rotation.to_euler(EulerRot::XYZ).2)
-                        .unwrap_or_default()
-                };
+                    let get_rotation = |e| {
+                        world
+                            .get::<Transform>(e)
+                            .map(|t| t.rotation.to_euler(EulerRot::XYZ).2)
+                            .unwrap_or_default()
+                    };
 
-                let rot1 = get_rotation(*a);
-                let rot2 = get_rotation(*b);
+                    let rot1 = get_rotation(*a);
+                    let rot2 = get_rotation(*b);
 
-                // Determine where they collided from the contact graph
-                if let Some(contact_pair) = rapier_context.contact_pair(*a, *b) {
-                    for manifold in contact_pair.manifolds() {
-                        for contact_point in manifold.points() {
-                            let (la1, lb1, la2, lb2) = (
-                                contact_point.local_p1() * 100.,
-                                -rot1,
-                                contact_point.local_p2() * 100.,
-                                -rot2,
-                            );
-                            // TODO: Get rid of hardcoded 100
-                            // info!("{}, {}, {}, {}", la1, lb1, la2, lb2);
+                    // Determine where they collided from the contact graph
+                    if let Some(contact_pair) = rapier_context.contact_pair(*a, *b) {
+                        for manifold in contact_pair.manifolds() {
+                            for contact_point in manifold.points() {
+                                let (la1, lb1, la2, lb2) = (
+                                    contact_point.local_p1() * 100.,
+                                    -rot1,
+                                    contact_point.local_p2() * 100.,
+                                    -rot2,
+                                );
+                                // TODO: Get rid of hardcoded 100
+                                // info!("{}, {}, {}, {}", la1, lb1, la2, lb2);
 
-                            // And then glue them together by creating fixed impulse joint between them
-                            let joint = FixedJointBuilder::new()
-                                .local_anchor1(la1)
-                                .local_basis1(lb1)
-                                .local_anchor2(la2)
-                                .local_basis2(lb2);
-                            commands
-                                .entity(contact_pair.collider2())
-                                .insert(ImpulseJoint::new(contact_pair.collider1(), joint));
+                                // And then glue them together by creating fixed impulse joint between them
+                                let joint = FixedJointBuilder::new()
+                                    .local_anchor1(la1)
+                                    .local_basis1(lb1)
+                                    .local_anchor2(la2)
+                                    .local_basis2(lb2);
+                                let (e1, e2) = if *a == contact_pair.collider1() {
+                                    (e1, e2)
+                                } else {
+                                    (e2, e1)
+                                };
+                                commands.entity(e2).insert(ImpulseJoint::new(e1, joint));
+                            }
                         }
                     }
+                } else {
+                    if let Some((_, e)) = get_recursively::<Throwable>(world, *a) {
+                        if world.get::<Destroyer>(*b).is_some() {
+                            commands.entity(e).despawn_recursive();
+                        }
+                    }
+                    if let Some((_, e)) = get_recursively::<Throwable>(world, *b) {
+                        if world.get::<Destroyer>(*a).is_some() {
+                            commands.entity(e).despawn_recursive();
+                        }
+                    }
+                    continue;
                 }
             }
             _ => {}
         }
-        info!("Received collision event: {collision_event:?}");
+        // info!("Received collision event: {collision_event:?}");
     }
 }
 
