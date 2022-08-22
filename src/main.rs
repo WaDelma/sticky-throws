@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
 
 use bevy::{
     ecs::system::EntityCommands, input::mouse::MouseMotion, prelude::*,
@@ -27,8 +27,9 @@ fn main() {
         .add_startup_system(setup_physics)
         .add_startup_system(setup_game)
         .add_system(handle_collisions)
-        .add_system(cursor_position)
-        .add_system(handle_currents)
+        .add_system(handle_throwing)
+        .add_system(handle_stored_items)
+        .add_system(handle_item_dropping)
         .run();
 }
 
@@ -47,11 +48,22 @@ struct Destroyer;
 fn setup_game(mut commands: Commands) {
     commands.insert_resource(Power(0.));
 
-    let mut cur = Current(None, VecDeque::default(), SmallRng::from_entropy());
+    let mut cur = Current {
+        current: None,
+        next: VecDeque::default(),
+        rng: SmallRng::from_entropy(),
+    };
     for _ in 0..3 {
-        gen_item(&mut commands, &mut cur);
+        generate_item(&mut commands, &mut cur);
     }
     commands.insert_resource(cur);
+    commands.insert_resource(ThrowIndicator {
+        timer: Timer::from_seconds(0.2, true),
+    });
+    commands.insert_resource(ItemDropTimer {
+        timer: Timer::from_seconds(5.0, false),
+        rng: SmallRng::from_entropy(),
+    });
 }
 
 fn setup_physics(mut commands: Commands) {
@@ -169,19 +181,35 @@ fn shoe<'w, 's, 'a>(commands: &'a mut Commands<'w, 's>, radius: f32) -> EntityCo
 #[derive(Default)]
 struct Power(f32);
 
-struct Current(Option<Entity>, VecDeque<Entity>, SmallRng);
+struct Current {
+    current: Option<Entity>,
+    next: VecDeque<Entity>,
+    rng: SmallRng,
+}
 
 #[derive(Component)]
 struct MainCamera;
 
-fn cursor_position(
+const STORAGE: Vec2 = Vec2::new(-575.0, -250.0);
+const SOURCE: Vec2 = Vec2::new(-350.0, -200.0);
+
+struct ThrowIndicator {
+    timer: Timer,
+}
+
+fn handle_throwing(
     mut commands: Commands,
+    time: Res<Time>,
     buttons: Res<Input<MouseButton>>,
     mut power: ResMut<Power>,
     mut current: ResMut<Current>,
+    mut indicator: ResMut<ThrowIndicator>,
     windows: Res<Windows>,
-    mut motion_evr: EventReader<MouseMotion>,
+    mut mouse_motions: EventReader<MouseMotion>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    restitutions: Query<&Restitution>,
+    masses: Query<&ReadMassProperties>,
+    colliders: Query<&Collider>,
 ) {
     let (camera, camera_transform) = cameras.single();
 
@@ -191,36 +219,69 @@ fn cursor_position(
         windows.get_primary().unwrap()
     };
 
-    let target = if let Some(screen_pos) = window.cursor_position() {
-        screen_to_world(window, camera, camera_transform, screen_pos)
-    } else {
-        Vec2::ZERO
-    };
-    let source = Vec2::new(-350.0, -200.0);
+    let target = window
+        .cursor_position()
+        .map(|screen_pos| screen_to_world(window, camera, camera_transform, screen_pos))
+        .unwrap_or(Vec2::ZERO);
 
-    let dir = (target - source).normalize_or_zero();
+    let dir = (target - SOURCE).normalize_or_zero();
 
     if buttons.just_pressed(MouseButton::Left) {
-        gen_item(&mut commands, &mut current);
-        select_item(&mut commands, &mut current);
+        generate_item(&mut commands, &mut current);
+        select_first_item(&mut commands, &mut current);
     }
 
     if buttons.pressed(MouseButton::Left) {
-        if let Some(cur) = current.0 {
-            let delta = motion_evr.iter().fold(Vec2::ZERO, |a, b| a + b.delta);
+        if let Some(cur) = current.current {
+            // Make moving mouse before throwing moving rotate the item
+            let delta = mouse_motions.iter().fold(Vec2::ZERO, |a, b| a + b.delta);
             if delta != Vec2::ZERO {
+                // TODO: Cap rotation velocity
                 commands.entity(cur).insert(ExternalImpulse {
                     impulse: Vec2::ZERO,
                     torque_impulse: delta.angle_between(Vec2::X) / 100.,
                 });
             };
+            power.0 += 6.;
+            power.0 = power.0.min(250.);
+
+            if indicator.timer.tick(time.delta()).just_finished() {
+                // dbg!(world.inspect_entity(cur));
+                // TODO: Make nothing collide with this and this collide with everything
+                commands
+                    .spawn()
+                    .insert(RigidBody::Dynamic)
+                    .insert(ActiveEvents::COLLISION_EVENTS)
+                    .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                    .insert(ExternalImpulse {
+                        impulse: dir * power.0,
+                        torque_impulse: 0.,
+                    })
+                    .maybe_insert(restitutions.get(cur).ok().cloned())
+                    .maybe_insert(colliders.get(cur).ok().cloned());
+                // commands
+                //     .spawn()
+                //     .insert(RigidBody::Dynamic)
+                //     .insert(ActiveEvents::COLLISION_EVENTS)
+                //     .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                //     .insert(Collider::ball(10.))
+                //     .insert(ExternalImpulse {
+                //         impulse: dir * power.0,
+                //         torque_impulse: 0.,
+                //     })
+                //     .maybe_insert(restitutions.get(cur).ok().cloned())
+                //     .maybe_insert(
+                //         masses
+                //             .get(cur)
+                //             .ok()
+                //             .map(|m| AdditionalMassProperties::MassProperties(m.0)),
+                //     );
+            }
         }
-        power.0 += 5.;
-        power.0 = power.0.min(300.);
     }
 
     if buttons.just_released(MouseButton::Left) {
-        if let Some(cur) = current.0.take() {
+        if let Some(cur) = current.current.take() {
             commands
                 .entity(cur)
                 .insert(GravityScale(1.))
@@ -235,49 +296,57 @@ fn cursor_position(
     }
 }
 
-fn handle_currents(mut commands: Commands, current: ResMut<Current>) {
-    let storage = Vec2::new(-575.0, -250.0);
-    for (i, &e) in current.1.iter().enumerate() {
-        let pos = storage + Vec2::new(0., 100.) * i as f32;
-        let transform = Transform::from_xyz(pos.x, pos.y, 0.).with_scale(Vec3::ONE * 0.5);
+trait EntityCommandsExt {
+    fn maybe_insert<C>(&mut self, c: Option<C>) -> &mut Self
+    where
+        C: Component;
+}
 
+impl<'w, 's, 'a> EntityCommandsExt for EntityCommands<'w, 's, 'a> {
+    fn maybe_insert<C>(&mut self, c: Option<C>) -> &mut Self
+    where
+        C: Component,
+    {
+        if let Some(c) = c {
+            self.insert(c);
+        }
+        self
+    }
+}
+
+fn handle_stored_items(mut commands: Commands, current: ResMut<Current>) {
+    for (i, &e) in current.next.iter().enumerate() {
         commands.add(move |world: &mut World| {
-            *world.get_mut::<Transform>(e).unwrap() = transform;
+            let pos = STORAGE + Vec2::new(0., 100.) * i as f32;
+            *world.get_mut(e).unwrap() =
+                Transform::from_xyz(pos.x, pos.y, 0.).with_scale(Vec3::ONE * 0.5);
         });
     }
 }
 
-fn gen_item(commands: &mut Commands, current: &mut Current) {
-    let storage = Vec2::new(-575.0, -250.0);
-    let pos = storage + Vec2::new(0., 75.) * current.1.len() as f32;
+fn generate_item(commands: &mut Commands, current: &mut Current) {
+    let pos = STORAGE + Vec2::new(0., 75.) * current.next.len() as f32;
     let transform = Transform::from_xyz(pos.x, pos.y, 0.).with_scale(Vec3::ONE * 0.5);
 
-    let item = match current.2.gen_range(0..=3) {
-        0 => shoe(commands, 50.),
-        1 => ball(commands, 50.),
-        2 => cereal_box(commands, 50.),
-        3 => hammer(commands, 50.),
-        _ => unreachable!(),
-    }
-    .insert(GravityScale(0.))
-    .insert_bundle(TransformBundle::from(transform))
-    .id();
-
-    current.1.push_back(item);
+    current.next.push_back(
+        random_item(&mut current.rng, commands)
+            .insert(GravityScale(0.))
+            .insert_bundle(TransformBundle::from(transform))
+            .id(),
+    );
 }
 
-fn select_item(commands: &mut Commands, cur: &mut Current) {
-    let source = Vec2::new(-350.0, -200.0);
-    if cur.0.is_none() {
-        if let Some(e) = cur.1.pop_front() {
-            commands.add(move |world: &mut World| {
-                let mut transform = world.get_mut::<Transform>(e).unwrap();
-                transform.translation = Vec3::new(source.x, source.y, 0.);
-                transform.scale = Vec3::ONE;
-            });
-            commands.entity(e).insert(LockedAxes::TRANSLATION_LOCKED);
-            cur.0 = Some(e);
-        }
+fn select_first_item(commands: &mut Commands, cur: &mut Current) {
+    if cur.current.is_some() {
+        return;
+    }
+    if let Some(e) = cur.next.pop_front() {
+        commands.add(move |world: &mut World| {
+            *world.get_mut(e).unwrap() =
+                Transform::from_xyz(SOURCE.x, SOURCE.y, 0.).with_scale(Vec3::ONE);
+        });
+        commands.entity(e).insert(LockedAxes::TRANSLATION_LOCKED);
+        cur.current = Some(e);
     }
 }
 
@@ -292,4 +361,44 @@ fn screen_to_world(
     let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();
     let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
     world_pos.truncate()
+}
+
+pub struct ItemDropTimer {
+    timer: Timer,
+    rng: SmallRng,
+}
+
+fn handle_item_dropping(mut commands: Commands, time: Res<Time>, mut timer: ResMut<ItemDropTimer>) {
+    let commands = &mut commands;
+    if timer.timer.tick(time.delta()).just_finished() {
+        let x = timer.rng.gen_range(-400..=400);
+        let y = timer.rng.gen_range(0..=100);
+        let transform = Transform::from_xyz(x as f32, 500. + y as f32, 0.);
+        let angle = TAU / 8.;
+        random_item(&mut timer.rng, commands)
+            .insert_bundle(TransformBundle::from(transform))
+            .insert(Throwable)
+            .insert(ExternalImpulse {
+                impulse: Vec2::ZERO,
+                torque_impulse: timer.rng.gen_range(-angle..=angle),
+            });
+        timer.timer.set_duration(Duration::from_secs_f32(5.));
+        timer.timer.reset();
+    }
+}
+
+fn random_item<'w, 's, 'a, R>(
+    rng: &mut R,
+    commands: &'a mut Commands<'w, 's>,
+) -> EntityCommands<'w, 's, 'a>
+where
+    R: Rng,
+{
+    match rng.gen_range(0..=3) {
+        0 => shoe(commands, 50.),
+        1 => ball(commands, 50.),
+        2 => cereal_box(commands, 50.),
+        3 => hammer(commands, 50.),
+        _ => unreachable!(),
+    }
 }
