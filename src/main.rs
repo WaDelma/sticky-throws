@@ -5,7 +5,7 @@ use bevy::{
     render::camera::RenderTarget,
 };
 use bevy_rapier2d::prelude::*;
-use physics::{handle_collisions, Hooks};
+use physics::{handle_collisions, Hooks, PhysicsData};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 mod physics;
@@ -19,9 +19,7 @@ mod physics;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(RapierPhysicsPlugin::<&ImpulseJoint>::pixels_per_meter(
-            100.0,
-        ))
+        .add_plugin(RapierPhysicsPlugin::<PhysicsData>::pixels_per_meter(100.0))
         .add_plugin(RapierDebugRenderPlugin::default())
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
@@ -30,6 +28,7 @@ fn main() {
         .add_system(handle_throwing)
         .add_system(handle_stored_items)
         .add_system(handle_item_dropping)
+        .add_system(handle_death_timer)
         .run();
 }
 
@@ -58,7 +57,7 @@ fn setup_game(mut commands: Commands) {
     }
     commands.insert_resource(cur);
     commands.insert_resource(ThrowIndicator {
-        timer: Timer::from_seconds(0.2, true),
+        timer: Timer::from_seconds(0.1, true),
     });
     commands.insert_resource(ItemDropTimer {
         timer: Timer::from_seconds(5.0, false),
@@ -133,7 +132,6 @@ fn hammer<'w, 's, 'a>(
             .insert(Restitution::coefficient(0.2))
             .insert(ActiveEvents::COLLISION_EVENTS)
             .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-            .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
             .insert(Collider::cuboid(head_length, head_thickness))
             .insert(ColliderMassProperties::Density(3.0))
             .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, radius, 0.)));
@@ -141,7 +139,6 @@ fn hammer<'w, 's, 'a>(
             .spawn()
             .insert(Restitution::coefficient(0.5))
             .insert(ActiveEvents::COLLISION_EVENTS)
-            .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
             .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
             .insert(Collider::cuboid(
                 handle_thickness,
@@ -197,6 +194,24 @@ struct ThrowIndicator {
     timer: Timer,
 }
 
+#[derive(Component)]
+pub struct Ghost(Entity);
+
+#[derive(Component)]
+pub struct DeathTimer(Timer);
+
+fn handle_death_timer(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut timers: Query<(&mut DeathTimer, Entity)>,
+) {
+    for (mut timer, cur) in timers.iter_mut() {
+        if timer.0.tick(time.delta()).just_finished() {
+            commands.entity(cur).despawn_recursive();
+        }
+    }
+}
+
 fn handle_throwing(
     mut commands: Commands,
     time: Res<Time>,
@@ -208,8 +223,11 @@ fn handle_throwing(
     mut mouse_motions: EventReader<MouseMotion>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     restitutions: Query<&Restitution>,
-    masses: Query<&ReadMassProperties>,
+    collider_mass_props: Query<&ColliderMassProperties>,
     colliders: Query<&Collider>,
+    transforms: Query<&Transform>,
+    global_transforms: Query<&GlobalTransform>,
+    childrens: Query<&Children>,
 ) {
     let (camera, camera_transform) = cameras.single();
 
@@ -246,36 +264,61 @@ fn handle_throwing(
             power.0 = power.0.min(250.);
 
             if indicator.timer.tick(time.delta()).just_finished() {
-                // dbg!(world.inspect_entity(cur));
-                // TODO: Make nothing collide with this and this collide with everything
+                // TODO: This doesn't really work
+                let sim_scale = 1.;
                 commands
                     .spawn()
                     .insert(RigidBody::Dynamic)
+                    .insert(Ghost(cur))
                     .insert(ActiveEvents::COLLISION_EVENTS)
                     .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                    .insert(GravityScale(sim_scale))
+                    .insert(DeathTimer(Timer::new(Duration::from_secs_f32(0.5), false)))
                     .insert(ExternalImpulse {
-                        impulse: dir * power.0,
+                        impulse: dir * power.0 * sim_scale,
                         torque_impulse: 0.,
                     })
+                    .with_children(|children| {
+                        if let Ok(cur_children) = childrens.get(cur) {
+                            for &child in cur_children {
+                                children
+                                    .spawn()
+                                    .insert(ActiveEvents::COLLISION_EVENTS)
+                                    .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                                    .maybe_insert(transforms.get(child).ok().cloned())
+                                    .maybe_insert(global_transforms.get(child).ok().cloned())
+                                    .maybe_insert(restitutions.get(child).ok().cloned())
+                                    .maybe_insert(colliders.get(child).ok().cloned())
+                                    .maybe_insert(collider_mass_props.get(child).ok().cloned());
+                            }
+                        }
+                    })
+                    .maybe_insert(transforms.get(cur).ok().cloned())
+                    .maybe_insert(global_transforms.get(cur).ok().cloned())
                     .maybe_insert(restitutions.get(cur).ok().cloned())
-                    .maybe_insert(colliders.get(cur).ok().cloned());
-                // commands
-                //     .spawn()
-                //     .insert(RigidBody::Dynamic)
-                //     .insert(ActiveEvents::COLLISION_EVENTS)
-                //     .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                //     .insert(Collider::ball(10.))
-                //     .insert(ExternalImpulse {
-                //         impulse: dir * power.0,
-                //         torque_impulse: 0.,
-                //     })
-                //     .maybe_insert(restitutions.get(cur).ok().cloned())
-                //     .maybe_insert(
-                //         masses
-                //             .get(cur)
-                //             .ok()
-                //             .map(|m| AdditionalMassProperties::MassProperties(m.0)),
-                //     );
+                    .maybe_insert(colliders.get(cur).ok().cloned())
+                    .insert(
+                        collider_mass_props
+                            .get(cur)
+                            .ok()
+                            .cloned()
+                            .map(|m| match m {
+                                ColliderMassProperties::Density(d) => {
+                                    ColliderMassProperties::Density(d * sim_scale)
+                                }
+                                ColliderMassProperties::Mass(m) => {
+                                    ColliderMassProperties::Mass(m * sim_scale)
+                                }
+                                ColliderMassProperties::MassProperties(mp) => {
+                                    ColliderMassProperties::MassProperties(MassProperties {
+                                        local_center_of_mass: mp.local_center_of_mass,
+                                        mass: mp.mass * sim_scale,
+                                        principal_inertia: mp.principal_inertia * sim_scale,
+                                    })
+                                }
+                            })
+                            .unwrap_or_else(|| ColliderMassProperties::Density(sim_scale)),
+                    );
             }
         }
     }
