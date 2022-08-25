@@ -2,7 +2,7 @@ use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
 
 use bevy::{
     ecs::system::EntityCommands, input::mouse::MouseMotion, prelude::*,
-    render::camera::RenderTarget,
+    render::camera::RenderTarget, sprite::Anchor, window::PresentMode,
 };
 use bevy_rapier2d::prelude::*;
 use physics::{handle_collisions, Hooks, PhysicsData};
@@ -10,14 +10,22 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 mod physics;
 
-// TODO: Implement AI that throws items
-// TODO: Create bunch of different items
 // TODO: Polish gameplay
 // TODO: Implement rendering
 // TODO: Implement sounds
 
 fn main() {
     App::new()
+        .insert_resource(WindowDescriptor {
+            title: "Sticky throves".to_owned(),
+            width: 1920.,
+            height: 1080.,
+            resizable: false,
+            // TODO: Figure out how to scale game if resolution changes
+            // mode: WindowMode::BorderlessFullscreen,
+            present_mode: PresentMode::Immediate,
+            ..default()
+        })
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<PhysicsData>::pixels_per_meter(100.0))
         .add_plugin(RapierDebugRenderPlugin::default())
@@ -44,7 +52,7 @@ struct Throwable;
 #[derive(Clone, Debug, Component)]
 struct Destroyer;
 
-fn setup_game(mut commands: Commands) {
+fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(Power(0.));
 
     let mut cur = Current {
@@ -53,7 +61,7 @@ fn setup_game(mut commands: Commands) {
         rng: SmallRng::from_entropy(),
     };
     for _ in 0..3 {
-        generate_item(&mut commands, &mut cur);
+        generate_item(&mut commands, &asset_server, &mut cur);
     }
     commands.insert_resource(cur);
     commands.insert_resource(ThrowIndicator {
@@ -65,28 +73,37 @@ fn setup_game(mut commands: Commands) {
     });
 }
 
-fn setup_physics(mut commands: Commands) {
+fn setup_physics(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(PhysicsHooksWithQueryResource(Box::new(Hooks)));
 
     commands
         .spawn()
         .insert(Collider::cuboid(1000.0, 25.0))
         .insert(Destroyer)
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -350.0, 0.0)));
+        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -600.0, 0.0)));
 
     commands
         .spawn()
-        .insert(Collider::cuboid(20.0, 1000.0))
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(-500.0, 0.0, 0.0)));
+        .insert(Collider::cuboid(20.0, 550.0))
+        .insert(Restitution::coefficient(1.))
+        .insert_bundle(TransformBundle::from(
+            Transform::from_xyz(-650.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
+        ));
 
     commands
         .spawn()
-        .insert(Collider::cuboid(20.0, 1000.0))
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(500.0, 0.0, 0.0)));
+        .insert(Collider::cuboid(20.0, 550.0))
+        .insert(Restitution::coefficient(1.))
+        .insert_bundle(TransformBundle::from(
+            Transform::from_xyz(650.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(TAU * 0.55)),
+        ));
 
-    shoe(&mut commands, 50.)
+    // TODO: Create AI that throws items
+    shoe(&mut commands, &asset_server, 50.)
         .insert_bundle(TransformBundle::from(Transform::from_xyz(
-            300.0, 200.0, 0.0,
+            ENEMY_SOURCE.x,
+            ENEMY_SOURCE.y,
+            0.0,
         )))
         .insert(Velocity {
             linvel: Vec2::new(-100.0, 150.0),
@@ -95,18 +112,33 @@ fn setup_physics(mut commands: Commands) {
         .insert(Throwable);
 }
 
-fn ball<'w, 's, 'a>(commands: &'a mut Commands<'w, 's>, radius: f32) -> EntityCommands<'w, 's, 'a> {
+fn orange<'w, 's, 'a>(
+    commands: &'a mut Commands<'w, 's>,
+    asset_server: &AssetServer,
+    radius: f32,
+) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
     cmds.insert(RigidBody::Dynamic)
         .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
         .insert(Collider::ball(radius))
-        .insert(Restitution::coefficient(0.8));
+        .insert(Restitution::coefficient(0.8))
+        .insert(ColliderMassProperties::Density(1.05))
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(2., 3.) * radius),
+                anchor: Anchor::Custom(Vec2::new(0., -0.175)),
+                ..default()
+            },
+            texture: asset_server.load("orange.png"),
+            ..default()
+        });
     cmds
 }
 
 fn cereal_box<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
+    asset_server: &AssetServer,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
@@ -114,47 +146,71 @@ fn cereal_box<'w, 's, 'a>(
         .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
         .insert(Collider::cuboid(0.75 * radius, radius))
-        .insert(Restitution::coefficient(0.6));
+        .insert(Restitution::coefficient(0.6))
+        .insert(ColliderMassProperties::Density(0.4))
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(1.5, 2.) * radius),
+                ..default()
+            },
+            texture: asset_server.load("cereal.png"),
+            ..default()
+        });
     cmds
 }
 
 fn hammer<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
+    asset_server: &AssetServer,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
     let handle_thickness = radius * 0.2;
     let head_thickness = radius * 0.25;
     let head_length = radius * 0.75;
-    cmds.insert(RigidBody::Dynamic).with_children(|children| {
-        children
-            .spawn()
-            .insert(Restitution::coefficient(0.2))
-            .insert(ActiveEvents::COLLISION_EVENTS)
-            .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-            .insert(Collider::cuboid(head_length, head_thickness))
-            .insert(ColliderMassProperties::Density(3.0))
-            .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, radius, 0.)));
-        children
-            .spawn()
-            .insert(Restitution::coefficient(0.5))
-            .insert(ActiveEvents::COLLISION_EVENTS)
-            .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-            .insert(Collider::cuboid(
-                handle_thickness,
-                radius - 0.5 * head_thickness,
-            ))
-            .insert(ColliderMassProperties::Density(1.))
-            .insert_bundle(TransformBundle::from(Transform::from_xyz(
-                0.0,
-                -0.5 * head_thickness,
-                0.,
-            )));
-    });
+    cmds.insert(RigidBody::Dynamic)
+        .with_children(|children| {
+            children
+                .spawn()
+                .insert(Restitution::coefficient(0.2))
+                .insert(ActiveEvents::COLLISION_EVENTS)
+                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                .insert(Collider::cuboid(head_length, head_thickness))
+                .insert(ColliderMassProperties::Density(3.5))
+                .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, radius, 0.)));
+            children
+                .spawn()
+                .insert(Restitution::coefficient(0.5))
+                .insert(ActiveEvents::COLLISION_EVENTS)
+                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                .insert(Collider::cuboid(
+                    handle_thickness,
+                    radius - 0.5 * head_thickness,
+                ))
+                .insert(ColliderMassProperties::Density(0.8))
+                .insert_bundle(TransformBundle::from(Transform::from_xyz(
+                    0.0,
+                    -0.5 * head_thickness,
+                    0.,
+                )));
+        })
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(2., 3.) * radius),
+                anchor: Anchor::Custom(Vec2::new(0., -0.175)),
+                ..default()
+            },
+            texture: asset_server.load("hammer.png"),
+            ..default()
+        });
     cmds
 }
 
-fn shoe<'w, 's, 'a>(commands: &'a mut Commands<'w, 's>, radius: f32) -> EntityCommands<'w, 's, 'a> {
+fn shoe<'w, 's, 'a>(
+    commands: &'a mut Commands<'w, 's>,
+    asset_server: &AssetServer,
+    radius: f32,
+) -> EntityCommands<'w, 's, 'a> {
     let mid = Vec2::new(radius, radius);
     let mut cmds = commands.spawn();
     cmds.insert(RigidBody::Dynamic)
@@ -171,7 +227,16 @@ fn shoe<'w, 's, 'a>(commands: &'a mut Commands<'w, 's>, radius: f32) -> EntityCo
             ],
             &[[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]],
         ))
-        .insert(Restitution::coefficient(1.));
+        .insert(Restitution::coefficient(1.))
+        .insert(ColliderMassProperties::Density(1.15))
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(2., 2.) * radius),
+                ..default()
+            },
+            texture: asset_server.load("boot.png"),
+            ..default()
+        });
     cmds
 }
 
@@ -187,8 +252,9 @@ struct Current {
 #[derive(Component)]
 struct MainCamera;
 
-const STORAGE: Vec2 = Vec2::new(-575.0, -250.0);
-const SOURCE: Vec2 = Vec2::new(-350.0, -200.0);
+const STORAGE: Vec2 = Vec2::new(-900.0, -400.0);
+const SOURCE: Vec2 = Vec2::new(-550.0, -300.0);
+const ENEMY_SOURCE: Vec2 = Vec2::new(550.0, -300.0);
 
 struct ThrowIndicator {
     timer: Timer,
@@ -214,6 +280,7 @@ fn handle_death_timer(
 
 fn handle_throwing(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     time: Res<Time>,
     buttons: Res<Input<MouseButton>>,
     mut power: ResMut<Power>,
@@ -245,29 +312,42 @@ fn handle_throwing(
     let dir = (target - SOURCE).normalize_or_zero();
 
     if buttons.just_pressed(MouseButton::Left) {
-        generate_item(&mut commands, &mut current);
+        generate_item(&mut commands, &asset_server, &mut current);
         select_first_item(&mut commands, &mut current);
     }
 
     if buttons.pressed(MouseButton::Left) {
         if let Some(cur) = current.current {
             // Make moving mouse before throwing moving rotate the item
+            // TODO: After making window large this became crazy
             let delta = mouse_motions.iter().fold(Vec2::ZERO, |a, b| a + b.delta);
             if delta != Vec2::ZERO {
                 // TODO: Cap rotation velocity
                 commands.entity(cur).insert(ExternalImpulse {
                     impulse: Vec2::ZERO,
-                    torque_impulse: delta.angle_between(Vec2::X) / 100.,
+                    torque_impulse: delta.angle_between(Vec2::X) / 1000.,
                 });
             };
-            power.0 += 6.;
-            power.0 = power.0.min(250.);
+            // TODO: Scale by elapsed time?
+            power.0 += 0.2;
+            let max = 300.;
+            power.0 = power.0.min(max);
+            let percentage_power = power.0 / max;
 
             if indicator.timer.tick(time.delta()).just_finished() {
                 // TODO: This doesn't really work
                 let sim_scale = 1.;
+                let indicator_size = percentage_power.powf(2.);
                 commands
                     .spawn()
+                    .insert_bundle(SpriteBundle {
+                        sprite: Sprite {
+                            custom_size: Some(Vec2::new(200., 200.) * indicator_size),
+                            ..default()
+                        },
+                        texture: asset_server.load("indicator.png"),
+                        ..default()
+                    })
                     .insert(RigidBody::Dynamic)
                     .insert(Ghost(cur))
                     .insert(ActiveEvents::COLLISION_EVENTS)
@@ -293,7 +373,11 @@ fn handle_throwing(
                             }
                         }
                     })
-                    .maybe_insert(transforms.get(cur).ok().cloned())
+                    .maybe_insert(transforms.get(cur).ok().cloned().map(|t| Transform {
+                        translation: Vec3::new(t.translation.x, t.translation.y, 10.)
+                            + Vec3::new(dir.x, dir.y, 0.) * 50.,
+                        ..t
+                    }))
                     .maybe_insert(global_transforms.get(cur).ok().cloned())
                     .maybe_insert(restitutions.get(cur).ok().cloned())
                     .maybe_insert(colliders.get(cur).ok().cloned())
@@ -367,12 +451,12 @@ fn handle_stored_items(mut commands: Commands, current: ResMut<Current>) {
     }
 }
 
-fn generate_item(commands: &mut Commands, current: &mut Current) {
+fn generate_item(commands: &mut Commands, asset_server: &AssetServer, current: &mut Current) {
     let pos = STORAGE + Vec2::new(0., 75.) * current.next.len() as f32;
     let transform = Transform::from_xyz(pos.x, pos.y, 0.).with_scale(Vec3::ONE * 0.5);
 
     current.next.push_back(
-        random_item(&mut current.rng, commands)
+        random_item(&mut current.rng, asset_server, commands)
             .insert(GravityScale(0.))
             .insert_bundle(TransformBundle::from(transform))
             .id(),
@@ -411,14 +495,19 @@ pub struct ItemDropTimer {
     rng: SmallRng,
 }
 
-fn handle_item_dropping(mut commands: Commands, time: Res<Time>, mut timer: ResMut<ItemDropTimer>) {
+fn handle_item_dropping(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    time: Res<Time>,
+    mut timer: ResMut<ItemDropTimer>,
+) {
     let commands = &mut commands;
     if timer.timer.tick(time.delta()).just_finished() {
         let x = timer.rng.gen_range(-400..=400);
         let y = timer.rng.gen_range(0..=100);
-        let transform = Transform::from_xyz(x as f32, 500. + y as f32, 0.);
+        let transform = Transform::from_xyz(x as f32, 600. + y as f32, 0.);
         let angle = TAU / 8.;
-        random_item(&mut timer.rng, commands)
+        random_item(&mut timer.rng, &asset_server, commands)
             .insert_bundle(TransformBundle::from(transform))
             .insert(Throwable)
             .insert(ExternalImpulse {
@@ -432,16 +521,17 @@ fn handle_item_dropping(mut commands: Commands, time: Res<Time>, mut timer: ResM
 
 fn random_item<'w, 's, 'a, R>(
     rng: &mut R,
+    asset_server: &'a AssetServer,
     commands: &'a mut Commands<'w, 's>,
 ) -> EntityCommands<'w, 's, 'a>
 where
     R: Rng,
 {
     match rng.gen_range(0..=3) {
-        0 => shoe(commands, 50.),
-        1 => ball(commands, 50.),
-        2 => cereal_box(commands, 50.),
-        3 => hammer(commands, 50.),
+        0 => shoe(commands, asset_server, 50.),
+        1 => orange(commands, asset_server, 50.),
+        2 => cereal_box(commands, asset_server, 75.),
+        3 => hammer(commands, asset_server, 50.),
         _ => unreachable!(),
     }
 }
