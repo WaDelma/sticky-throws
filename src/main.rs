@@ -1,8 +1,12 @@
 use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
 
 use bevy::{
-    ecs::system::EntityCommands, input::mouse::MouseMotion, prelude::*,
-    render::camera::RenderTarget, sprite::Anchor, window::PresentMode,
+    ecs::system::EntityCommands,
+    input::mouse::MouseMotion,
+    prelude::*,
+    render::camera::RenderTarget,
+    sprite::{Anchor, MaterialMesh2dBundle},
+    window::PresentMode,
 };
 use bevy_rapier2d::prelude::*;
 use physics::{handle_collisions, Hooks, PhysicsData};
@@ -73,7 +77,12 @@ fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-fn setup_physics(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_physics(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
+) {
     commands.insert_resource(PhysicsHooksWithQueryResource(Box::new(Hooks)));
 
     commands
@@ -82,21 +91,33 @@ fn setup_physics(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(Destroyer)
         .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -600.0, 0.0)));
 
-    commands
-        .spawn()
-        .insert(Collider::cuboid(20.0, 550.0))
-        .insert(Restitution::coefficient(1.))
-        .insert_bundle(TransformBundle::from(
-            Transform::from_xyz(-650.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
-        ));
+    // TODO: Make this repeat
+    let texture_handle = asset_server.load("bricks.png");
+    let mesh = Mesh::from(shape::Quad::new(2. * Vec2::new(20.0, 575.0)));
 
     commands
         .spawn()
-        .insert(Collider::cuboid(20.0, 550.0))
+        .insert(Collider::cuboid(20.0, 575.0))
         .insert(Restitution::coefficient(1.))
-        .insert_bundle(TransformBundle::from(
-            Transform::from_xyz(650.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(TAU * 0.55)),
-        ));
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(mesh.clone()).into(),
+            material: materials.add(ColorMaterial::from(texture_handle.clone())),
+            transform: Transform::from_xyz(-650.0, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
+            ..default()
+        });
+
+    commands
+        .spawn()
+        .insert(Collider::cuboid(20.0, 575.0))
+        .insert(Restitution::coefficient(1.))
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(mesh).into(),
+            material: materials.add(ColorMaterial::from(texture_handle)),
+            transform: Transform::from_xyz(650.0, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_z(TAU * 0.55)),
+            ..default()
+        });
 
     // TODO: Create AI that throws items
     shoe(&mut commands, &asset_server, 50.)
@@ -147,7 +168,7 @@ fn cereal_box<'w, 's, 'a>(
         .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
         .insert(Collider::cuboid(0.75 * radius, radius))
         .insert(Restitution::coefficient(0.6))
-        .insert(ColliderMassProperties::Density(0.4))
+        .insert(ColliderMassProperties::Density(0.45))
         .insert_bundle(SpriteBundle {
             sprite: Sprite {
                 custom_size: Some(Vec2::new(1.5, 2.) * radius),
@@ -253,8 +274,8 @@ struct Current {
 struct MainCamera;
 
 const STORAGE: Vec2 = Vec2::new(-900.0, -400.0);
-const SOURCE: Vec2 = Vec2::new(-550.0, -300.0);
-const ENEMY_SOURCE: Vec2 = Vec2::new(550.0, -300.0);
+const SOURCE: Vec2 = Vec2::new(-550.0, -350.0);
+const ENEMY_SOURCE: Vec2 = Vec2::new(550.0, -350.0);
 
 struct ThrowIndicator {
     timer: Timer,
@@ -311,6 +332,7 @@ fn handle_throwing(
 
     let dir = (target - SOURCE).normalize_or_zero();
 
+    // TODO: Add cooldown
     if buttons.just_pressed(MouseButton::Left) {
         generate_item(&mut commands, &asset_server, &mut current);
         select_first_item(&mut commands, &mut current);
@@ -323,6 +345,7 @@ fn handle_throwing(
             let delta = mouse_motions.iter().fold(Vec2::ZERO, |a, b| a + b.delta);
             if delta != Vec2::ZERO {
                 // TODO: Cap rotation velocity
+                // TODO: Rotation direction can be incorrect
                 commands.entity(cur).insert(ExternalImpulse {
                     impulse: Vec2::ZERO,
                     torque_impulse: delta.angle_between(Vec2::X) / 1000.,
@@ -330,7 +353,7 @@ fn handle_throwing(
             };
             // TODO: Scale by elapsed time?
             power.0 += 0.2;
-            let max = 300.;
+            let max = 320.;
             power.0 = power.0.min(max);
             let percentage_power = power.0 / max;
 
@@ -338,71 +361,21 @@ fn handle_throwing(
                 // TODO: This doesn't really work
                 let sim_scale = 1.;
                 let indicator_size = percentage_power.powf(2.);
-                commands
-                    .spawn()
-                    .insert_bundle(SpriteBundle {
-                        sprite: Sprite {
-                            custom_size: Some(Vec2::new(200., 200.) * indicator_size),
-                            ..default()
-                        },
-                        texture: asset_server.load("indicator.png"),
-                        ..default()
-                    })
-                    .insert(RigidBody::Dynamic)
-                    .insert(Ghost(cur))
-                    .insert(ActiveEvents::COLLISION_EVENTS)
-                    .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                    .insert(GravityScale(sim_scale))
-                    .insert(DeathTimer(Timer::new(Duration::from_secs_f32(0.5), false)))
-                    .insert(ExternalImpulse {
-                        impulse: dir * power.0 * sim_scale,
-                        torque_impulse: 0.,
-                    })
-                    .with_children(|children| {
-                        if let Ok(cur_children) = childrens.get(cur) {
-                            for &child in cur_children {
-                                children
-                                    .spawn()
-                                    .insert(ActiveEvents::COLLISION_EVENTS)
-                                    .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                                    .maybe_insert(transforms.get(child).ok().cloned())
-                                    .maybe_insert(global_transforms.get(child).ok().cloned())
-                                    .maybe_insert(restitutions.get(child).ok().cloned())
-                                    .maybe_insert(colliders.get(child).ok().cloned())
-                                    .maybe_insert(collider_mass_props.get(child).ok().cloned());
-                            }
-                        }
-                    })
-                    .maybe_insert(transforms.get(cur).ok().cloned().map(|t| Transform {
-                        translation: Vec3::new(t.translation.x, t.translation.y, 10.)
-                            + Vec3::new(dir.x, dir.y, 0.) * 50.,
-                        ..t
-                    }))
-                    .maybe_insert(global_transforms.get(cur).ok().cloned())
-                    .maybe_insert(restitutions.get(cur).ok().cloned())
-                    .maybe_insert(colliders.get(cur).ok().cloned())
-                    .insert(
-                        collider_mass_props
-                            .get(cur)
-                            .ok()
-                            .cloned()
-                            .map(|m| match m {
-                                ColliderMassProperties::Density(d) => {
-                                    ColliderMassProperties::Density(d * sim_scale)
-                                }
-                                ColliderMassProperties::Mass(m) => {
-                                    ColliderMassProperties::Mass(m * sim_scale)
-                                }
-                                ColliderMassProperties::MassProperties(mp) => {
-                                    ColliderMassProperties::MassProperties(MassProperties {
-                                        local_center_of_mass: mp.local_center_of_mass,
-                                        mass: mp.mass * sim_scale,
-                                        principal_inertia: mp.principal_inertia * sim_scale,
-                                    })
-                                }
-                            })
-                            .unwrap_or_else(|| ColliderMassProperties::Density(sim_scale)),
-                    );
+                spawn_indicator(
+                    &mut commands,
+                    indicator_size,
+                    asset_server,
+                    cur,
+                    sim_scale,
+                    dir,
+                    &power,
+                    childrens,
+                    transforms,
+                    global_transforms,
+                    restitutions,
+                    colliders,
+                    collider_mass_props,
+                );
             }
         }
     }
@@ -421,6 +394,86 @@ fn handle_throwing(
         }
         power.0 = 0.;
     }
+}
+
+fn spawn_indicator(
+    commands: &mut Commands,
+    indicator_size: f32,
+    asset_server: Res<AssetServer>,
+    cur: Entity,
+    sim_scale: f32,
+    dir: Vec2,
+    power: &ResMut<Power>,
+    childrens: Query<&Children>,
+    transforms: Query<&Transform>,
+    global_transforms: Query<&GlobalTransform>,
+    restitutions: Query<&Restitution>,
+    colliders: Query<&Collider>,
+    collider_mass_props: Query<&ColliderMassProperties>,
+) {
+    commands
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(150., 150.) * indicator_size),
+                ..default()
+            },
+            texture: asset_server.load("indicator.png"),
+            ..default()
+        })
+        .insert(RigidBody::Dynamic)
+        .insert(Ghost(cur))
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+        .insert(GravityScale(sim_scale))
+        .insert(DeathTimer(Timer::new(Duration::from_secs_f32(0.5), false)))
+        .insert(ExternalImpulse {
+            impulse: dir * power.0 * sim_scale,
+            torque_impulse: 0.,
+        })
+        .with_children(|children| {
+            if let Ok(cur_children) = childrens.get(cur) {
+                for &child in cur_children {
+                    children
+                        .spawn()
+                        .insert(ActiveEvents::COLLISION_EVENTS)
+                        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                        .maybe_insert(transforms.get(child).ok().cloned())
+                        .maybe_insert(global_transforms.get(child).ok().cloned())
+                        .maybe_insert(restitutions.get(child).ok().cloned())
+                        .maybe_insert(colliders.get(child).ok().cloned())
+                        .maybe_insert(collider_mass_props.get(child).ok().cloned());
+                }
+            }
+        })
+        .maybe_insert(transforms.get(cur).ok().cloned().map(|t| Transform {
+            translation: Vec3::new(t.translation.x, t.translation.y, 10.)
+                + Vec3::new(dir.x, dir.y, 0.) * 50.,
+            ..t
+        }))
+        .maybe_insert(global_transforms.get(cur).ok().cloned())
+        .maybe_insert(restitutions.get(cur).ok().cloned())
+        .maybe_insert(colliders.get(cur).ok().cloned())
+        .insert(
+            collider_mass_props
+                .get(cur)
+                .ok()
+                .cloned()
+                .map(|m| match m {
+                    ColliderMassProperties::Density(d) => {
+                        ColliderMassProperties::Density(d * sim_scale)
+                    }
+                    ColliderMassProperties::Mass(m) => ColliderMassProperties::Mass(m * sim_scale),
+                    ColliderMassProperties::MassProperties(mp) => {
+                        ColliderMassProperties::MassProperties(MassProperties {
+                            local_center_of_mass: mp.local_center_of_mass,
+                            mass: mp.mass * sim_scale,
+                            principal_inertia: mp.principal_inertia * sim_scale,
+                        })
+                    }
+                })
+                .unwrap_or_else(|| ColliderMassProperties::Density(sim_scale)),
+        );
 }
 
 trait EntityCommandsExt {
