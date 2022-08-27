@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 bevy = "0.8.0"
 bevy_rapier2d = "0.16.1"
+ena = "0.14.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
