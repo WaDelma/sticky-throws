@@ -182,7 +182,6 @@ pub fn handle_collisions(
                     if let Some((_, e)) =
                         get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *b)
                     {
-                        info!("insert: {e:?}");
                         players.single_mut().disables.insert(e);
                     }
                 }
@@ -190,7 +189,6 @@ pub fn handle_collisions(
                     if let Some((_, e)) =
                         get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *a)
                     {
-                        info!("insert: {e:?}");
                         players.single_mut().disables.insert(e);
                     }
                 }
@@ -201,7 +199,6 @@ pub fn handle_collisions(
                     if let Some((_, e)) =
                         get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *b)
                     {
-                        info!("delete: {e:?}");
                         players.single_mut().disables.remove(&e);
                     }
                 }
@@ -209,7 +206,6 @@ pub fn handle_collisions(
                     if let Some((_, e)) =
                         get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *a)
                     {
-                        info!("delete: {e:?}");
                         players.single_mut().disables.remove(&e);
                     }
                 }

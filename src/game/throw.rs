@@ -6,14 +6,16 @@ use crate::{
     MainCamera,
 };
 use bevy::{
+    ecs::system::SystemParam,
     math::Vec3Swizzles,
     prelude::*,
     render::{camera::RenderTarget, render_resource::Texture},
+    sprite::Material2d,
     utils::HashSet,
 };
 use bevy_rapier2d::prelude::*;
 
-use super::items::random_item;
+use super::{items::random_item, CustomMaterial};
 
 #[derive(Clone, Debug, Component)]
 pub struct Throwable {
@@ -61,13 +63,17 @@ pub fn handle_throwing(
     mut indicator: ResMut<ThrowIndicator>,
     windows: Res<Windows>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    restitutions: Query<&Restitution>,
-    collider_mass_props: Query<&ColliderMassProperties>,
-    colliders: Query<&Collider>,
-    transforms: Query<&Transform>,
-    global_transforms: Query<&GlobalTransform>,
+    (restitutions, collider_mass_props, colliders, transforms, global_transforms): (
+        Query<&Restitution>,
+        Query<&ColliderMassProperties>,
+        Query<&Collider>,
+        Query<&Transform>,
+        Query<&GlobalTransform>,
+    ),
     childrens: Query<&Children>,
     mut players: Query<(&mut Player, &Transform, Entity)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut custom_materials: ResMut<Assets<CustomMaterial>>,
 ) {
     let (camera, camera_transform) = cameras.single();
 
@@ -87,7 +93,13 @@ pub fn handle_throwing(
     for (mut player, pos, player_entity) in players.iter_mut() {
         if player.cooldown_timer.tick(time.delta()).finished() {
             if buttons.just_pressed(MouseButton::Left) && current.current.is_none() {
-                generate_item(&mut commands, &asset_server, &mut current);
+                generate_item(
+                    &mut commands,
+                    &asset_server,
+                    &mut meshes,
+                    &mut custom_materials,
+                    &mut current,
+                );
                 select_first_item(&mut commands, &mut current);
                 player.hold_timer.reset();
             }
@@ -229,15 +241,27 @@ pub fn handle_stored_items(mut commands: Commands, current: ResMut<Current>) {
 
 #[derive(Component)]
 pub struct IgnoreCollisions;
-pub fn generate_item(commands: &mut Commands, asset_server: &AssetServer, current: &mut Current) {
+pub fn generate_item(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    current: &mut Current,
+) {
     let pos = STORAGE + Vec2::new(0., 75.) * current.next.len() as f32;
     let transform = Transform::from_xyz(pos.x, pos.y, 5.).with_scale(Vec3::ONE * 0.5);
-    let entity = random_item(&mut current.rng, asset_server, commands)
-        .insert(GravityScale(0.))
-        .insert_bundle(TransformBundle::from(transform))
-        .insert(OnGame)
-        .insert(IgnoreCollisions)
-        .id();
+    let entity = random_item(
+        &mut current.rng,
+        commands,
+        asset_server,
+        meshes,
+        custom_materials,
+    )
+    .insert(GravityScale(0.))
+    .insert_bundle(TransformBundle::from(transform))
+    .insert(OnGame)
+    .insert(IgnoreCollisions)
+    .id();
     current.next.push_back(entity);
 }
 
@@ -255,13 +279,15 @@ fn select_first_item(commands: &mut Commands, cur: &mut Current) {
     }
 }
 
+// TODO: This doesn't detect `EntityCommands::despawn`
 pub fn handle_throwable_removals(
     removals: RemovedComponents<Throwable>,
     mut players: Query<&mut Player>,
 ) {
-    let mut player = players.single_mut();
-    for entity in removals.iter() {
-        player.disables.remove(&entity);
+    for mut player in players.iter_mut() {
+        for entity in removals.iter() {
+            player.disables.remove(&entity);
+        }
     }
 }
 
@@ -271,14 +297,16 @@ pub fn handle_disabling(
     mut sprites: Query<&mut Sprite>,
 ) {
     if let Some(cur) = cur.current {
-        let color = &mut sprites.get_mut(cur).unwrap().color;
-        if player.single().disables.is_empty() {
-            if let Color::Rgba { alpha, .. } = color {
-                *alpha = 1.;
-            }
-        } else {
-            if let Color::Rgba { alpha, .. } = color {
-                *alpha = 0.5;
+        if let Ok(mut sprite) = sprites.get_mut(cur) {
+            let color = &mut sprite.color;
+            if player.single().disables.is_empty() {
+                if let Color::Rgba { alpha, .. } = color {
+                    *alpha = 1.;
+                }
+            } else {
+                if let Color::Rgba { alpha, .. } = color {
+                    *alpha = 0.5;
+                }
             }
         }
     }

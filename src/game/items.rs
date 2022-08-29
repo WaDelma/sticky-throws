@@ -1,6 +1,8 @@
-use bevy::{ecs::system::EntityCommands, prelude::*, sprite::Anchor};
+use bevy::{ecs::system::EntityCommands, prelude::*, sprite::MaterialMesh2dBundle};
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
+
+use super::CustomMaterial;
 
 const DAMPING: Damping = Damping {
     linear_damping: 0.2,
@@ -10,24 +12,36 @@ const DAMPING: Damping = Damping {
 pub fn orange<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
     cmds.insert(RigidBody::Dynamic)
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-        .insert(Collider::ball(radius))
-        .insert(Restitution::coefficient(0.8))
-        .insert(ColliderMassProperties::Density(1.05))
+        .with_children(|f| {
+            f.spawn()
+                .insert(ActiveEvents::COLLISION_EVENTS)
+                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                .insert(Collider::ball(radius))
+                .insert(Restitution::coefficient(0.8))
+                .insert(ColliderMassProperties::Density(1.05))
+                .insert_bundle(TransformBundle::from(Transform::from_xyz(
+                    0.,
+                    -radius * 0.3,
+                    0.,
+                )));
+        })
         .insert(Ccd::enabled())
         .insert(DAMPING)
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(2., 3.) * radius),
-                anchor: Anchor::Custom(Vec2::new(0., -0.175)),
-                ..default()
-            },
-            texture: asset_server.load("orange.png"),
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
+                .into(),
+            material: custom_materials.add(CustomMaterial {
+                color: Color::LIME_GREEN,
+                color_texture: asset_server.load("orange.png"),
+                sticky: 0,
+            }),
             ..default()
         });
     cmds
@@ -36,6 +50,8 @@ pub fn orange<'w, 's, 'a>(
 pub fn cereal_box<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
@@ -47,12 +63,17 @@ pub fn cereal_box<'w, 's, 'a>(
         .insert(ColliderMassProperties::Density(0.45))
         .insert(Ccd::enabled())
         .insert(DAMPING)
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(1.5, 2.) * radius),
-                ..default()
-            },
-            texture: asset_server.load("cereal.png"),
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(shape::Quad::new(
+                    Vec2::new(0.75 * 2., 2.) * radius,
+                )))
+                .into(),
+            material: custom_materials.add(CustomMaterial {
+                color: Color::LIME_GREEN,
+                color_texture: asset_server.load("cereal.png"),
+                sticky: 0,
+            }),
             ..default()
         });
     cmds
@@ -61,6 +82,8 @@ pub fn cereal_box<'w, 's, 'a>(
 pub fn hammer<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn();
@@ -76,7 +99,11 @@ pub fn hammer<'w, 's, 'a>(
                 .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
                 .insert(Collider::cuboid(head_length, head_thickness))
                 .insert(ColliderMassProperties::Density(3.5))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(0., radius, 0.)));
+                .insert_bundle(TransformBundle::from(Transform::from_xyz(
+                    0.,
+                    radius - radius * 0.3,
+                    0.,
+                )));
             children
                 .spawn()
                 .insert(Restitution::coefficient(0.5))
@@ -89,19 +116,21 @@ pub fn hammer<'w, 's, 'a>(
                 .insert(ColliderMassProperties::Density(0.8))
                 .insert_bundle(TransformBundle::from(Transform::from_xyz(
                     0.0,
-                    -0.5 * head_thickness,
+                    -0.5 * head_thickness - radius * 0.3,
                     0.,
                 )));
         })
         .insert(Ccd::enabled())
         .insert(DAMPING)
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(2., 3.) * radius),
-                anchor: Anchor::Custom(Vec2::new(0., -0.175)),
-                ..default()
-            },
-            texture: asset_server.load("hammer.png"),
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
+                .into(),
+            material: custom_materials.add(CustomMaterial {
+                color: Color::LIME_GREEN,
+                color_texture: asset_server.load("hammer.png"),
+                sticky: 0,
+            }),
             ..default()
         });
     cmds
@@ -110,6 +139,8 @@ pub fn hammer<'w, 's, 'a>(
 pub fn shoe<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mid = Vec2::new(radius, radius);
@@ -133,12 +164,15 @@ pub fn shoe<'w, 's, 'a>(
         .insert(ColliderMassProperties::Density(1.15))
         .insert(Ccd::enabled())
         .insert(DAMPING)
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(2., 2.) * radius),
-                ..default()
-            },
-            texture: asset_server.load("boot.png"),
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(shape::Quad::new(Vec2::new(2., 2.) * radius)))
+                .into(),
+            material: custom_materials.add(CustomMaterial {
+                color: Color::LIME_GREEN,
+                color_texture: asset_server.load("boot.png"),
+                sticky: 0,
+            }),
             ..default()
         });
     cmds
@@ -146,17 +180,19 @@ pub fn shoe<'w, 's, 'a>(
 
 pub fn random_item<'w, 's, 'a, R>(
     rng: &mut R,
-    asset_server: &'a AssetServer,
     commands: &'a mut Commands<'w, 's>,
+    asset_server: &'a AssetServer,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
 ) -> EntityCommands<'w, 's, 'a>
 where
     R: Rng,
 {
     match rng.gen_range(0..=3) {
-        0 => shoe(commands, asset_server, 50.),
-        1 => orange(commands, asset_server, 50.),
-        2 => cereal_box(commands, asset_server, 75.),
-        3 => hammer(commands, asset_server, 50.),
+        0 => shoe(commands, asset_server, meshes, custom_materials, 50.),
+        1 => orange(commands, asset_server, meshes, custom_materials, 50.),
+        2 => cereal_box(commands, asset_server, meshes, custom_materials, 75.),
+        3 => hammer(commands, asset_server, meshes, custom_materials, 50.),
         _ => unreachable!(),
     }
 }

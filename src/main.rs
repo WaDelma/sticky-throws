@@ -1,6 +1,6 @@
-use bevy::{prelude::*, window::PresentMode};
+use bevy::{prelude::*, sprite::Material2dPlugin, window::PresentMode};
 use bevy_rapier2d::prelude::*;
-use game::physics::PhysicsData;
+use game::{physics::PhysicsData, CustomMaterial};
 
 mod game;
 mod menu;
@@ -36,14 +36,17 @@ fn main() {
         .add_plugin(game::GamePlugin)
         // .add_plugin(menu::MenuPlugin)
         .add_plugin(RapierPhysicsPlugin::<PhysicsData>::pixels_per_meter(100.0))
-        .add_plugin(RapierDebugRenderPlugin::default())
-        .add_startup_system(setup_graphics)
+        .add_plugin(Material2dPlugin::<CustomMaterial>::default())
+        // .add_plugin(RapierDebugRenderPlugin::default())
+        // .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        // .add_plugin(LogDiagnosticsPlugin::default())
+        .add_startup_system(setup)
         .run();
 }
 
 #[derive(Component)]
 pub struct MainCamera;
-fn setup_graphics(mut commands: Commands) {
+fn setup(mut commands: Commands) {
     commands
         .spawn_bundle(Camera2dBundle::default())
         .insert(MainCamera);

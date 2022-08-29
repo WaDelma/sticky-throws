@@ -3082,6 +3082,7 @@ dependencies = [
  "bevy_rapier2d",
  "rand",
  "union-find",
+ "wgpu",
 ]
 
 [[package]]

@@ -12,12 +12,18 @@ use std::{collections::VecDeque, f32::consts::TAU, sync::Mutex, time::Duration};
 use super::GameState;
 use bevy::{
     prelude::*,
-    sprite::MaterialMesh2dBundle,
+    reflect::TypeUuid,
+    render::{
+        render_resource::{AsBindGroup, ShaderRef},
+        texture::{ImageSampler, ImageSettings},
+    },
+    sprite::{Material2d, MaterialMesh2dBundle},
     utils::{HashMap, HashSet},
 };
 use bevy_rapier2d::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use union_find::QuickFindUf;
+use wgpu::{AddressMode, SamplerBorderColor};
 
 mod collision_test;
 mod items;
@@ -46,9 +52,10 @@ impl Plugin for GamePlugin {
                 .with_system(handle_lives_display)
                 .with_system(handle_death)
                 .with_system(handle_disabling)
-                .with_system(handle_throwable_removals)
-                .with_system(handle_stickiness_effect),
+                .with_system(handle_stickiness_effect)
+                .with_system(customizing_sampler),
         )
+        .add_system_to_stage(CoreStage::PostUpdate, handle_throwable_removals)
         .add_system_set(SystemSet::on_exit(GameState::Game).with_system(despawn_screen::<OnGame>));
     }
 }
@@ -64,7 +71,15 @@ fn handle_death(players: Query<&Player>, mut game_state: ResMut<State<GameState>
 #[derive(Component)]
 pub struct OnGame;
 
-fn setup_graphics(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_graphics(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut settings: ResMut<ImageSettings>,
+) {
+    settings.default_sampler.address_mode_u = AddressMode::ClampToBorder;
+    settings.default_sampler.address_mode_v = AddressMode::ClampToBorder;
+    settings.default_sampler.border_color = Some(SamplerBorderColor::TransparentBlack);
+
     let style = TextStyle {
         font: asset_server.load("fonts/MajorMonoDisplay-Regular.ttf"),
         font_size: 50.0,
@@ -161,7 +176,15 @@ fn handle_lives_display(
 #[derive(Component)]
 pub struct Disabler;
 
-fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_game(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut custom_materials: ResMut<Assets<CustomMaterial>>,
+    audio: Res<Audio>,
+) {
+    let music = asset_server.load("music/StickyThrows.ogg");
+    audio.play_with_settings(music, PlaybackSettings::LOOP.with_volume(0.4));
     commands
         .spawn()
         .insert(Player {
@@ -201,7 +224,13 @@ fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
         rng: SmallRng::from_entropy(),
     };
     for _ in 0..3 {
-        generate_item(&mut commands, &asset_server, &mut cur);
+        generate_item(
+            &mut commands,
+            &asset_server,
+            &mut meshes,
+            &mut custom_materials,
+            &mut cur,
+        );
     }
     commands.insert_resource(cur);
     commands.insert_resource(ThrowIndicator {
@@ -223,6 +252,7 @@ fn setup_physics(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut custom_materials: ResMut<Assets<CustomMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
     commands.insert_resource(PhysicsHooksWithQueryResource(Box::new(Hooks)));
@@ -269,18 +299,24 @@ fn setup_physics(
         .insert(OnGame);
 
     // TODO: Create AI that throws items
-    shoe(&mut commands, &asset_server, 50.)
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(
-            ENEMY_SOURCE.x,
-            ENEMY_SOURCE.y,
-            0.0,
-        )))
-        .insert(Velocity {
-            linvel: Vec2::new(-100.0, 150.0),
-            angvel: 0.,
-        })
-        .insert(Throwable::new(None, true))
-        .insert(OnGame);
+    shoe(
+        &mut commands,
+        &asset_server,
+        &mut meshes,
+        &mut custom_materials,
+        50.,
+    )
+    .insert_bundle(TransformBundle::from(Transform::from_xyz(
+        ENEMY_SOURCE.x,
+        ENEMY_SOURCE.y,
+        0.0,
+    )))
+    .insert(Velocity {
+        linvel: Vec2::new(-100.0, 150.0),
+        angvel: 0.,
+    })
+    .insert(Throwable::new(None, true))
+    .insert(OnGame);
 }
 
 pub struct Current {
@@ -314,6 +350,8 @@ pub struct ItemDropTimer {
 fn handle_item_dropping(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut custom_materials: ResMut<Assets<CustomMaterial>>,
     time: Res<Time>,
     mut timer: ResMut<ItemDropTimer>,
 ) {
@@ -323,14 +361,20 @@ fn handle_item_dropping(
         let y = timer.rng.gen_range(0..=100);
         let transform = Transform::from_xyz(x as f32, 550. + y as f32, 5.);
         let angle = TAU / 8.;
-        random_item(&mut timer.rng, &asset_server, commands)
-            .insert_bundle(TransformBundle::from(transform))
-            .insert(Throwable::new(None, true))
-            .insert(ExternalImpulse {
-                impulse: Vec2::ZERO,
-                torque_impulse: timer.rng.gen_range(-angle..=angle),
-            })
-            .insert(OnGame);
+        random_item(
+            &mut timer.rng,
+            commands,
+            &asset_server,
+            &mut meshes,
+            &mut custom_materials,
+        )
+        .insert_bundle(TransformBundle::from(transform))
+        .insert(Throwable::new(None, true))
+        .insert(ExternalImpulse {
+            impulse: Vec2::ZERO,
+            torque_impulse: timer.rng.gen_range(-angle..=angle),
+        })
+        .insert(OnGame);
     }
 }
 
@@ -352,46 +396,59 @@ fn handle_scoring_effect(mut scoring_text: Query<(&mut Text, &ScoringEffect, &De
 #[derive(Component)]
 struct StickyEffect;
 fn handle_stickiness_effect(
-    mut commands: Commands,
-    sticky_effects: Query<&StickyEffect>,
-    throwables: Query<(&Throwable, Entity, Option<&Children>)>,
+    throwables: Query<(&Throwable, &Handle<CustomMaterial>)>,
+    mut custom_materials: ResMut<Assets<CustomMaterial>>,
 ) {
-    for (throwable, entity, children) in throwables.iter() {
-        if throwable.sticky {
-            if children
-                .and_then(|children| {
-                    children
-                        .iter()
-                        .find(|entity| sticky_effects.contains(**entity))
-                })
-                .is_none()
-            {
-                commands.add(move |world: &mut World| {
-                    if let (Some(mut sprite), Some(texture)) = (
-                        world.get::<Sprite>(entity).cloned(),
-                        world.get::<Handle<Image>>(entity).cloned(),
-                    ) {
-                        sprite.color = Color::YELLOW_GREEN;
-                        sprite.custom_size = sprite.custom_size.map(|s| s * 1.1);
-                        world.entity_mut(entity).with_children(|child_builder| {
-                            child_builder.spawn().insert(StickyEffect).insert_bundle(
-                                SpriteBundle {
-                                    sprite,
-                                    texture,
-                                    transform: Transform::from_xyz(0., 0., 0.),
-                                    ..default()
-                                },
-                            );
-                        });
-                    }
-                });
+    for (throwable, material) in throwables.iter() {
+        if let Some(material) = custom_materials.get_mut(material) {
+            if throwable.sticky {
+                material.sticky = 1;
+            } else {
+                material.sticky = 0;
             }
-        } else if let Some(children) = children {
-            for child in children {
-                if sticky_effects.contains(*child) {
-                    commands.entity(*child).despawn();
+        }
+    }
+}
+
+impl Material2d for CustomMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/sticky.wgsl".into()
+    }
+}
+
+#[derive(AsBindGroup, TypeUuid, Debug, Clone)]
+#[uuid = "f690fdae-d598-45ab-8225-97e2a3f056e0"]
+pub struct CustomMaterial {
+    #[uniform(0)]
+    color: Color,
+    #[uniform(1)]
+    sticky: i32,
+    #[texture(2)]
+    #[sampler(3)]
+    color_texture: Handle<Image>,
+}
+
+// TODO: There was default sampler, but didn't work
+fn customizing_sampler(
+    mut events: EventReader<AssetEvent<Image>>,
+    mut assets: ResMut<Assets<Image>>,
+) {
+    for event in events.iter() {
+        match event {
+            AssetEvent::Created { handle } => {
+                if let Some(texture) = assets.get_mut(handle) {
+                    let mut linear = ImageSampler::linear();
+                    if let ImageSampler::Descriptor(linear) = &mut linear {
+                        linear.address_mode_u = AddressMode::ClampToBorder;
+                        linear.address_mode_v = AddressMode::ClampToBorder;
+                        linear.border_color = Some(SamplerBorderColor::TransparentBlack);
+                    }
+
+                    texture.sampler_descriptor = linear;
                 }
             }
+            AssetEvent::Modified { handle } => {}
+            AssetEvent::Removed { handle } => {}
         }
     }
 }
