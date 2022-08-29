@@ -831,16 +831,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevyjam2_combine"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_rapier2d",
- "rand",
- "union-find",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.59.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3082,6 +3072,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "tricky-throws"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_rapier2d",
+ "rand",
+ "union-find",
 ]
 
 [[package]]
