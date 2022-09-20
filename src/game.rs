@@ -6,11 +6,12 @@ use self::{
         handle_throwing, Player, ThrowIndicator, Throwable,
     },
 };
-use crate::utils::despawn_screen;
+use crate::{utils::despawn_screen, Music};
 use std::{collections::VecDeque, f32::consts::TAU, sync::Mutex, time::Duration};
 
 use super::GameState;
 use bevy::{
+    audio::AudioSink,
     prelude::*,
     reflect::TypeUuid,
     render::{
@@ -60,9 +61,16 @@ impl Plugin for GamePlugin {
     }
 }
 
-fn handle_death(players: Query<&Player>, mut game_state: ResMut<State<GameState>>) {
+fn handle_death(
+    players: Query<&Player>,
+    audio_sinks: Res<Assets<AudioSink>>,
+    mut music: ResMut<Music>,
+    mut game_state: ResMut<State<GameState>>,
+) {
     for player in players.iter() {
         if player.lives == 0 {
+            let handle = music.0.take().unwrap();
+            audio_sinks.get(&handle).unwrap().stop();
             game_state.set(GameState::Splash).unwrap();
         }
     }
@@ -179,12 +187,23 @@ pub struct Disabler;
 fn setup_game(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    audio_sinks: Res<Assets<AudioSink>>,
+    mut music: ResMut<Music>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut custom_materials: ResMut<Assets<CustomMaterial>>,
     audio: Res<Audio>,
 ) {
-    let music = asset_server.load("music/StickyThrows.ogg");
-    audio.play_with_settings(music, PlaybackSettings::LOOP.with_volume(0.4));
+    if let Some(handle) = music.0.take() {
+        audio_sinks.get(&handle).map(|sink| sink.stop());
+    }
+    let music_asset = asset_server.load("music/StickyThrows.ogg");
+    music.0 = Some({
+        let mut sink =
+            audio.play_with_settings(music_asset, PlaybackSettings::LOOP.with_volume(0.4));
+        sink.make_strong(&audio_sinks);
+        sink
+    });
+
     commands
         .spawn()
         .insert(Player {

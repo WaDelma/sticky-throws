@@ -1,3 +1,4 @@
+use bevy::audio::AudioSink;
 use bevy::{prelude::*, sprite::Material2dPlugin, window::PresentMode};
 use bevy_rapier2d::prelude::*;
 use game::{physics::PhysicsData, CustomMaterial};
@@ -44,9 +45,13 @@ fn main() {
         .run();
 }
 
+#[derive(Default)]
+pub struct Music(Option<Handle<AudioSink>>);
+
 #[derive(Component)]
 pub struct MainCamera;
 fn setup(mut commands: Commands) {
+    commands.init_resource::<Music>();
     commands
         .spawn_bundle(Camera2dBundle::default())
         .insert(MainCamera);
