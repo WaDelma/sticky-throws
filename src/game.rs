@@ -297,8 +297,8 @@ fn setup_physics(
         .insert_bundle(MaterialMesh2dBundle {
             mesh: meshes.add(mesh.clone()).into(),
             material: materials.add(ColorMaterial::from(texture_handle.clone())),
-            transform: Transform::from_xyz(-675.0, 0.0, 0.0)
-                .with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
+            transform: Transform::from_xyz(-750.0, 0.0, 0.0),
+            // .with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
             ..default()
         })
         .insert(OnGame);
@@ -311,8 +311,8 @@ fn setup_physics(
         .insert_bundle(MaterialMesh2dBundle {
             mesh: meshes.add(mesh).into(),
             material: materials.add(ColorMaterial::from(texture_handle)),
-            transform: Transform::from_xyz(675.0, 0.0, 0.0)
-                .with_rotation(Quat::from_rotation_z(TAU * 0.55)),
+            transform: Transform::from_xyz(750.0, 0.0, 0.0),
+            // .with_rotation(Quat::from_rotation_z(TAU * 0.55)),
             ..default()
         })
         .insert(OnGame);
@@ -345,8 +345,8 @@ pub struct Current {
 }
 
 pub const STORAGE: Vec2 = Vec2::new(-900.0, -400.0);
-pub const SOURCE: Vec2 = Vec2::new(-625.0, -375.0);
-pub const ENEMY_SOURCE: Vec2 = Vec2::new(625.0, -375.0);
+pub const SOURCE: Vec2 = Vec2::new(-600.0, -375.0);
+pub const ENEMY_SOURCE: Vec2 = Vec2::new(600.0, -375.0);
 
 #[derive(Component)]
 pub struct DeathTimer(pub Timer);

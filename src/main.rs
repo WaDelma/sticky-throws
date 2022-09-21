@@ -8,6 +8,7 @@ mod menu;
 mod splash;
 mod utils;
 
+// TODO: Add one way dome around throwing position
 // TODO: Polish gameplay
 // TODO: Implement sounds
 
