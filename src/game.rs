@@ -193,16 +193,16 @@ fn setup_game(
     mut custom_materials: ResMut<Assets<CustomMaterial>>,
     audio: Res<Audio>,
 ) {
-    if let Some(handle) = music.0.take() {
-        audio_sinks.get(&handle).map(|sink| sink.stop());
-    }
-    let music_asset = asset_server.load("music/StickyThrows.ogg");
-    music.0 = Some({
-        let mut sink =
-            audio.play_with_settings(music_asset, PlaybackSettings::LOOP.with_volume(0.4));
-        sink.make_strong(&audio_sinks);
-        sink
-    });
+    // if let Some(handle) = music.0.take() {
+    //     audio_sinks.get(&handle).map(|sink| sink.stop());
+    // }
+    // let music_asset = asset_server.load("music/StickyThrows.ogg");
+    // music.0 = Some({
+    //     let mut sink =
+    //         audio.play_with_settings(music_asset, PlaybackSettings::LOOP.with_volume(0.4));
+    //     sink.make_strong(&audio_sinks);
+    //     sink
+    // });
 
     commands
         .spawn()
@@ -282,7 +282,7 @@ fn setup_physics(
         .spawn()
         .insert(Collider::cuboid(1000.0, 25.0))
         .insert(Destroyer)
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -600.0, 0.0)))
+        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -800.0, 0.0)))
         .insert(OnGame);
 
     // TODO: Make this repeat
@@ -291,7 +291,7 @@ fn setup_physics(
 
     commands
         .spawn()
-        .insert(Collider::cuboid(20.0, 575.0))
+        .insert(Collider::cuboid(20.0, 700.0))
         .insert(Restitution::coefficient(4.))
         .insert(Wall)
         .insert_bundle(MaterialMesh2dBundle {
@@ -305,7 +305,7 @@ fn setup_physics(
 
     commands
         .spawn()
-        .insert(Collider::cuboid(20.0, 575.0))
+        .insert(Collider::cuboid(20.0, 700.0))
         .insert(Restitution::coefficient(4.))
         .insert(Wall)
         .insert_bundle(MaterialMesh2dBundle {
@@ -466,8 +466,8 @@ fn customizing_sampler(
                     texture.sampler_descriptor = linear;
                 }
             }
-            AssetEvent::Modified { handle } => {}
-            AssetEvent::Removed { handle } => {}
+            AssetEvent::Modified { handle: _ } => {}
+            AssetEvent::Removed { handle: _ } => {}
         }
     }
 }

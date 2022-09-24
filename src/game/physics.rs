@@ -1,6 +1,7 @@
 use std::convert::identity;
 use std::sync::Mutex;
 
+use bevy::ecs::query::WorldQuery;
 use bevy::math::Vec3Swizzles;
 use bevy::{prelude::*, utils::HashMap};
 use bevy_rapier2d::prelude::*;
@@ -28,39 +29,39 @@ pub struct EntityWrapper(Entity, UnionBySizeRank);
 
 impl Union for EntityWrapper {
     fn union(lval: Self, rval: Self) -> union_find::UnionResult<Self> {
-        let res = UnionBySizeRank::union(lval.1, rval.1);
-        match res {
-            union_find::UnionResult::Left(l) => {
-                union_find::UnionResult::Left(EntityWrapper(lval.0, l))
-            }
-            union_find::UnionResult::Right(r) => {
-                union_find::UnionResult::Right(EntityWrapper(rval.0, r))
-            }
+        use union_find::UnionResult::*;
+        match UnionBySizeRank::union(lval.1, rval.1) {
+            Left(l) => Left(EntityWrapper(lval.0, l)),
+            Right(r) => Right(EntityWrapper(rval.0, r)),
         }
     }
 }
 
 pub struct Hooks;
 
-pub type PhysicsData<'a> = (
-    Option<&'a ImpulseJoint>,
-    Option<&'a Ghost>,
-    Option<&'a Parent>,
-    Option<&'a StuckItems>,
-    Option<&'a IgnoreCollisions>,
-);
+#[derive(WorldQuery)]
+#[world_query(derive(Default))]
+pub struct PhysicsData<'a> {
+    joint: Option<&'a ImpulseJoint>,
+    ghost: Option<&'a Ghost>,
+    parent: Option<&'a Parent>,
+    items: Option<&'a StuckItems>,
+    ignore_collisions: Option<&'a IgnoreCollisions>,
+}
 
 fn hook_get_rec_ghost<'a, 'b>(
     query: &'b Query<PhysicsData<'a>>,
     e: Entity,
 ) -> Option<(&'b Ghost, Entity)> {
-    let (_, ghost, parent, _, _) = query
+    let physics_data = query
         .get(e)
         .ok()
-        .map_or((None, None, None, None, None), identity);
-    ghost
-        .map(|g| (g, e))
-        .or_else(|| parent.and_then(|parent| hook_get_rec_ghost(query, parent.get())))
+        .map_or(PhysicsDataItem::default(), identity);
+    physics_data.ghost.map(|g| (g, e)).or_else(|| {
+        physics_data
+            .parent
+            .and_then(|parent| hook_get_rec_ghost(query, parent.get()))
+    })
 }
 
 fn hook_find_parent<'a, 'b, F>(
@@ -74,12 +75,14 @@ where
     if f(e) {
         return Some(e);
     }
-    let (_, _, parent, _, _) = query
+    let physics_data = query
         .get(e)
         .ok()
-        .map_or((None, None, None, None, None), identity);
+        .map_or(PhysicsDataItem::default(), identity);
 
-    parent.and_then(|p| hook_find_parent(query, p.get(), f))
+    physics_data
+        .parent
+        .and_then(|p| hook_find_parent(query, p.get(), f))
 }
 
 impl<'a> PhysicsHooksWithQuery<PhysicsData<'a>> for Hooks {
@@ -90,14 +93,14 @@ impl<'a> PhysicsHooksWithQuery<PhysicsData<'a>> for Hooks {
     ) -> Option<SolverFlags> {
         let (a, b) = (context.collider1(), context.collider2());
         let ghost_a = hook_get_rec_ghost(query, a);
-        if let Some((g, _)) = ghost_a {
-            if hook_find_parent(query, b, |e| g.0 == e).is_some() {
+        if let Some((&Ghost(g), _)) = ghost_a {
+            if hook_find_parent(query, b, |e| g == e).is_some() {
                 return None;
             }
         }
         let ghost_b = hook_get_rec_ghost(query, b);
-        if let Some((g, _)) = ghost_b {
-            if hook_find_parent(query, a, |e| g.0 == e).is_some() {
+        if let Some((&Ghost(g), _)) = ghost_b {
+            if hook_find_parent(query, a, |e| g == e).is_some() {
                 return None;
             }
         }
@@ -105,16 +108,17 @@ impl<'a> PhysicsHooksWithQuery<PhysicsData<'a>> for Hooks {
             return None;
         }
 
-        let get_parent = |e| query.get(e).ok().and_then(|j| j.2);
+        let get_parent = |e| query.get(e).ok().and_then(|j| j.parent);
+        let get = |e| query.get(e).ok().and_then(|j| j.ignore_collisions);
 
-        if get_recursively(get_parent, |e| query.get(e).ok().and_then(|j| j.4), a).is_some() {
+        if get_recursively(get_parent, get, a).is_some() {
             return None;
         }
-        if get_recursively(get_parent, |e| query.get(e).ok().and_then(|j| j.4), b).is_some() {
+        if get_recursively(get_parent, get, b).is_some() {
             return None;
         }
 
-        let stuck_items = query.iter().flat_map(|j| j.3).next().unwrap();
+        let stuck_items = query.iter().flat_map(|j| j.items).next().unwrap();
 
         let p1 = find_most_parent(get_parent, a);
         let p2 = find_most_parent(get_parent, b);
@@ -146,15 +150,13 @@ where
         .or_else(|| get_parent(e).and_then(|parent| get_recursively(get_parent, get, parent.get())))
 }
 
-fn find_most_parent<'a, F>(mut f: F, e: Entity) -> Entity
+fn find_most_parent<'a, F>(mut get_parent: F, e: Entity) -> Entity
 where
     F: FnMut(Entity) -> Option<&'a Parent>,
 {
-    if let Some(p) = f(e) {
-        find_most_parent(f, p.get())
-    } else {
-        e
-    }
+    get_parent(e)
+        .map(|p| find_most_parent(get_parent, p.get()))
+        .unwrap_or(e)
 }
 
 pub fn handle_collisions(
@@ -176,19 +178,18 @@ pub fn handle_collisions(
     let stuck_items = &mut *stuck_items.single_mut();
 
     for collision_event in collision_events.iter() {
+        let get_parent = |e| parents.get(e).ok();
+        let get_throwable = |e| throwables.get(e).ok();
+        let get_ghost = |e| ghosts.get(e).ok();
         match collision_event {
             CollisionEvent::Started(a, b, flags) if flags.contains(CollisionEventFlags::SENSOR) => {
                 if disablers.get(*a).is_ok() {
-                    if let Some((_, e)) =
-                        get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *b)
-                    {
+                    if let Some((_, e)) = get_recursively(get_parent, get_throwable, *b) {
                         players.single_mut().disables.insert(e);
                     }
                 }
                 if disablers.get(*b).is_ok() {
-                    if let Some((_, e)) =
-                        get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *a)
-                    {
+                    if let Some((_, e)) = get_recursively(get_parent, get_throwable, *a) {
                         players.single_mut().disables.insert(e);
                     }
                 }
@@ -196,35 +197,26 @@ pub fn handle_collisions(
             // TODO: Sometimes delete is not registered
             CollisionEvent::Stopped(a, b, flags) if flags.contains(CollisionEventFlags::SENSOR) => {
                 if disablers.get(*a).is_ok() {
-                    if let Some((_, e)) =
-                        get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *b)
-                    {
+                    if let Some((_, e)) = get_recursively(get_parent, get_throwable, *b) {
                         players.single_mut().disables.remove(&e);
                     }
                 }
                 if disablers.get(*b).is_ok() {
-                    if let Some((_, e)) =
-                        get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), *a)
-                    {
+                    if let Some((_, e)) = get_recursively(get_parent, get_throwable, *a) {
                         players.single_mut().disables.remove(&e);
                     }
                 }
             }
             CollisionEvent::Started(a, b, _) => {
-                let a = *a;
-                let b = *b;
+                let (a, b) = (*a, *b);
                 // `filter_contact_pair` should ensure that both are not ghosts or what ghost was made of
-                if let Some((_, e)) =
-                    get_recursively(|e| parents.get(e).ok(), |e| ghosts.get(e).ok(), a)
-                {
+                if let Some((_, e)) = get_recursively(get_parent, get_ghost, a) {
                     commands.entity(e).despawn_recursive();
-                } else if let Some((_, e)) =
-                    get_recursively(|e| parents.get(e).ok(), |e| ghosts.get(e).ok(), b)
-                {
+                } else if let Some((_, e)) = get_recursively(get_parent, get_ghost, b) {
                     commands.entity(e).despawn_recursive();
                 }
-                let ta = get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), a);
-                let tb = get_recursively(|e| parents.get(e).ok(), |e| throwables.get(e).ok(), b);
+                let ta = get_recursively(get_parent, get_throwable, a);
+                let tb = get_recursively(get_parent, get_throwable, b);
                 if let (Some((t1, e1)), Some((t2, e2))) = (ta, tb) {
                     if !t1.sticky && !t2.sticky {
                         continue;
@@ -258,16 +250,12 @@ pub fn handle_collisions(
 
                             let local_transform = |mut cur, parent| {
                                 let mut transform = Vec2::ZERO;
-                                loop {
-                                    if let Ok(p) = parents.get(cur) {
-                                        if let Ok(t) = transforms.get(cur) {
-                                            transform += t.translation.xy();
-                                        }
-                                        cur = p.get();
-                                        if cur == parent {
-                                            break;
-                                        }
-                                    } else {
+                                while let Ok(p) = parents.get(cur) {
+                                    if let Ok(t) = transforms.get(cur) {
+                                        transform += t.translation.xy();
+                                    }
+                                    cur = p.get();
+                                    if cur == parent {
                                         break;
                                     }
                                 }
@@ -310,39 +298,39 @@ pub fn handle_collisions(
 
                             // Add score
                             if let Ok([mut tr1, mut tr2]) = throwables.get_many_mut([e1, e2]) {
-                                let mut f = |t: &Throwable, e| {
-                                    if !t.stuck {
-                                        if let Some(mut p) =
-                                            t.player.and_then(|p| players.get_mut(p).ok())
-                                        {
-                                            if let Some(i) = stuck_items.map.get(&e) {
-                                                let size = stuck_items
-                                                    .union_find
-                                                    .lock()
-                                                    .unwrap()
-                                                    .get(*i)
-                                                    .1
-                                                    .size();
-                                                let points = 10 * fibonacci(size);
-                                                let pos =
-                                                    transforms.get(e1).unwrap().translation.xy()
-                                                        + t1;
-                                                let total_points = t.multiplier * points;
-                                                visualise_scoring(
-                                                    &asset_server,
-                                                    pos,
-                                                    &mut commands,
-                                                    points,
-                                                    t.multiplier,
-                                                    total_points,
-                                                );
-                                                p.score += total_points;
-                                            }
+                                let mut handle = |throwable: &Throwable, e| {
+                                    if throwable.stuck {
+                                        return;
+                                    }
+                                    if let Some(mut player) =
+                                        throwable.player.and_then(|p| players.get_mut(p).ok())
+                                    {
+                                        if let Some(&key) = stuck_items.map.get(&e) {
+                                            let size = stuck_items
+                                                .union_find
+                                                .lock()
+                                                .unwrap()
+                                                .get(key)
+                                                .1
+                                                .size();
+                                            let points = 10 * fibonacci(size);
+                                            let pos =
+                                                transforms.get(e1).unwrap().translation.xy() + t1;
+                                            let total_points = throwable.multiplier * points;
+                                            visualise_scoring(
+                                                &asset_server,
+                                                pos,
+                                                &mut commands,
+                                                points,
+                                                throwable.multiplier,
+                                                total_points,
+                                            );
+                                            player.score += total_points;
                                         }
                                     }
                                 };
-                                f(&tr1, e1);
-                                f(&tr2, e2);
+                                handle(&tr1, e1);
+                                handle(&tr2, e2);
                                 tr1.sticky = true;
                                 tr2.sticky = true;
                                 tr1.stuck = true;
@@ -351,12 +339,14 @@ pub fn handle_collisions(
                         }
                     }
                 } else {
-                    if let Some((t, e)) = ta {
+                    if let Some((throwable, e)) = ta {
                         if destroyers.get(b).is_ok() {
                             commands.entity(e).despawn_recursive();
-                            if let Some(mut p) = t.player.and_then(|e| players.get_mut(e).ok()) {
-                                if !t.stuck {
-                                    p.lives -= 1;
+                            if !throwable.stuck {
+                                if let Some(mut player) =
+                                    throwable.player.and_then(|e| players.get_mut(e).ok())
+                                {
+                                    player.lives -= 1;
                                 }
                             }
                         }
@@ -366,12 +356,14 @@ pub fn handle_collisions(
                             });
                         }
                     }
-                    if let Some((t, e)) = tb {
+                    if let Some((throwable, e)) = tb {
                         if destroyers.get(a).is_ok() {
                             commands.entity(e).despawn_recursive();
-                            if let Some(mut p) = t.player.and_then(|e| players.get_mut(e).ok()) {
-                                if !t.stuck {
-                                    p.lives -= 1;
+                            if !throwable.stuck {
+                                if let Some(mut player) =
+                                    throwable.player.and_then(|e| players.get_mut(e).ok())
+                                {
+                                    player.lives -= 1;
                                 }
                             }
                         }
@@ -405,20 +397,17 @@ fn visualise_scoring(
     };
     let text_alignment = TextAlignment::CENTER;
     let mult = if multiplier > 1 {
-        format!("{}×", multiplier)
+        format!("{multiplier}×")
     } else {
         "".to_owned()
     };
-    let emphasis = if total_points >= 100 {
-        "?"
-    } else if total_points >= 50 {
-        "!"
-    } else {
-        ""
-    };
+    let fifties = total_points / 50;
+    let exclamation_marks = "!".repeat(fifties / 2);
+    let question_mark = "?".repeat(fifties % 2);
+    let emphasis = format!("{exclamation_marks}{question_mark}");
     commands
         .spawn_bundle(Text2dBundle {
-            text: Text::from_section(format!("{}{points}{}", mult, emphasis), text_style.clone())
+            text: Text::from_section(format!("{mult}{points}{emphasis}"), text_style.clone())
                 .with_alignment(text_alignment),
             transform: Transform::from_xyz(pos.x, pos.y, 10.),
             ..default()

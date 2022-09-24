@@ -77,11 +77,7 @@ pub fn handle_throwing(
 ) {
     let (camera, camera_transform) = cameras.single();
 
-    let window = if let RenderTarget::Window(id) = camera.target {
-        windows.get(id).unwrap()
-    } else {
-        windows.get_primary().unwrap()
-    };
+    let window = get_window(camera, &windows);
 
     let target = window
         .cursor_position()
@@ -104,7 +100,7 @@ pub fn handle_throwing(
                 player.hold_timer.reset();
             }
 
-            let impulse = dir * 140. + dir * player.hold_timer.percent() * 200.;
+            let impulse = dir * 140. + dir * player.hold_timer.percent() * 300.;
 
             if buttons.pressed(MouseButton::Left) {
                 if let Some(cur) = current.current {
@@ -162,6 +158,15 @@ pub fn handle_throwing(
             }
         }
     }
+}
+
+fn get_window<'a>(camera: &'a Camera, windows: &'a Windows) -> &'a Window {
+    if let RenderTarget::Window(id) = camera.target {
+        windows.get(id)
+    } else {
+        windows.get_primary()
+    }
+    .unwrap()
 }
 
 fn spawn_indicator(
@@ -241,6 +246,7 @@ pub fn handle_stored_items(mut commands: Commands, current: ResMut<Current>) {
 
 #[derive(Component)]
 pub struct IgnoreCollisions;
+
 pub fn generate_item(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -305,7 +311,7 @@ pub fn handle_disabling(
                 }
             } else {
                 if let Color::Rgba { alpha, .. } = color {
-                    *alpha = 0.5;
+                    *alpha = 0.25;
                 }
             }
         }
