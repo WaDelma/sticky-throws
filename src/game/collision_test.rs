@@ -14,7 +14,7 @@ pub fn test_collisions(mut commands: Commands) {
         angular_damping: 1.,
     };
     commands
-        .spawn()
+        .spawn_empty()
         .insert(RigidBody::Dynamic)
         .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
@@ -24,7 +24,7 @@ pub fn test_collisions(mut commands: Commands) {
         .insert(GravityScale(0.))
         .insert(Ccd::enabled())
         .insert(damp)
-        // .insert_bundle(SpriteBundle {
+        // .insert(SpriteBundle {
         //     sprite: Sprite {
         //         custom_size: Some(Vec2::new(1.5, 2.) * radius),
         //         ..default()
@@ -32,7 +32,7 @@ pub fn test_collisions(mut commands: Commands) {
         //     texture: asset_server.load("cereal.png"),
         //     ..default()
         // })
-        .insert_bundle(TransformBundle::from(Transform {
+        .insert(TransformBundle::from(Transform {
             translation: Vec3::new(-200., 0., 0.),
             rotation: Quat::from_rotation_z(angle * TAU),
             ..default()
@@ -49,19 +49,19 @@ pub fn test_collisions(mut commands: Commands) {
     let head_thickness = radius * 0.25;
     let head_length = radius * 0.75;
     commands
-        .spawn()
+        .spawn_empty()
         .insert(RigidBody::Dynamic)
         .with_children(|children| {
             children
-                .spawn()
+                .spawn_empty()
                 .insert(Restitution::coefficient(0.2))
                 .insert(ActiveEvents::COLLISION_EVENTS)
                 .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
                 .insert(Collider::cuboid(head_length, head_thickness))
                 .insert(ColliderMassProperties::Density(3.5))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, radius, 0.)));
+                .insert(TransformBundle::from(Transform::from_xyz(0.0, radius, 0.)));
             children
-                .spawn()
+                .spawn_empty()
                 .insert(Restitution::coefficient(0.5))
                 .insert(ActiveEvents::COLLISION_EVENTS)
                 .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
@@ -70,14 +70,14 @@ pub fn test_collisions(mut commands: Commands) {
                     radius - 0.5 * head_thickness,
                 ))
                 .insert(ColliderMassProperties::Density(0.8))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(
+                .insert(TransformBundle::from(Transform::from_xyz(
                     0.0,
                     -0.5 * head_thickness,
                     0.,
                 )));
         })
         .insert(Throwable::new(None, true))
-        .insert_bundle(TransformBundle::from(Transform {
+        .insert(TransformBundle::from(Transform {
             translation: Vec3::new(0., 0., 0.),
             rotation: Quat::from_rotation_z(angle * TAU),
             ..default()
@@ -85,7 +85,7 @@ pub fn test_collisions(mut commands: Commands) {
         .insert(GravityScale(0.))
         .insert(Ccd::enabled())
         .insert(damp);
-    // .insert_bundle(SpriteBundle {
+    // .insert(SpriteBundle {
     //     sprite: Sprite {
     //         custom_size: Some(Vec2::new(2., 3.) * radius),
     //         anchor: Anchor::Custom(Vec2::new(0., -0.175)),
@@ -118,7 +118,7 @@ pub fn test_collisions(mut commands: Commands) {
     //     .insert(ColliderMassProperties::Density(1.15))
     //     .insert(Ccd::enabled())
     //     .insert(damp)
-    //     // .insert_bundle(SpriteBundle {
+    //     // .insert(SpriteBundle {
     //     //     sprite: Sprite {
     //     //         custom_size: Some(Vec2::new(2., 2.) * radius),
     //     //         ..default()
@@ -126,7 +126,7 @@ pub fn test_collisions(mut commands: Commands) {
     //     //     texture: asset_server.load("boot.png"),
     //     //     ..default()
     //     // })
-    //     .insert_bundle(TransformBundle::from(Transform {
+    //     .insert(TransformBundle::from(Transform {
     //         translation: Vec3::new(0., 0., 0.),
     //         rotation: Quat::from_rotation_z(angle * TAU),
     //         ..default()

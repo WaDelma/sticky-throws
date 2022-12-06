@@ -16,24 +16,22 @@ pub fn orange<'w, 's, 'a>(
     custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
-    let mut cmds = commands.spawn();
-    cmds.insert(RigidBody::Dynamic)
-        .with_children(|f| {
-            f.spawn()
-                .insert(ActiveEvents::COLLISION_EVENTS)
-                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                .insert(Collider::ball(radius))
-                .insert(Restitution::coefficient(0.8))
-                .insert(ColliderMassProperties::Density(1.05))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(
-                    0.,
-                    -radius * 0.3,
-                    0.,
-                )));
-        })
-        .insert(Ccd::enabled())
-        .insert(DAMPING)
-        .insert_bundle(MaterialMesh2dBundle {
+    let mut cmds = commands.spawn_empty();
+    cmds.with_children(|f| {
+        f.spawn((
+            ActiveEvents::COLLISION_EVENTS,
+            ActiveHooks::FILTER_CONTACT_PAIRS,
+            Collider::ball(radius),
+            Restitution::coefficient(0.8),
+            ColliderMassProperties::Density(1.05),
+            TransformBundle::from(Transform::from_xyz(0., -radius * 0.3, 0.)),
+        ));
+    })
+    .insert((
+        RigidBody::Dynamic,
+        Ccd::enabled(),
+        DAMPING,
+        MaterialMesh2dBundle {
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
                 .into(),
@@ -43,7 +41,8 @@ pub fn orange<'w, 's, 'a>(
                 sticky: 0,
             }),
             ..default()
-        });
+        },
+    ));
     cmds
 }
 
@@ -54,16 +53,17 @@ pub fn cereal_box<'w, 's, 'a>(
     custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
-    let mut cmds = commands.spawn();
-    cmds.insert(RigidBody::Dynamic)
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-        .insert(Collider::cuboid(0.75 * radius, radius))
-        .insert(Restitution::coefficient(0.6))
-        .insert(ColliderMassProperties::Density(0.45))
-        .insert(Ccd::enabled())
-        .insert(DAMPING)
-        .insert_bundle(MaterialMesh2dBundle {
+    let mut cmds = commands.spawn_empty();
+    cmds.insert((
+        RigidBody::Dynamic,
+        ActiveEvents::COLLISION_EVENTS,
+        ActiveHooks::FILTER_CONTACT_PAIRS,
+        Collider::cuboid(0.75 * radius, radius),
+        Restitution::coefficient(0.6),
+        ColliderMassProperties::Density(0.45),
+        Ccd::enabled(),
+        DAMPING,
+        MaterialMesh2dBundle {
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(
                     Vec2::new(0.75 * 2., 2.) * radius,
@@ -75,7 +75,8 @@ pub fn cereal_box<'w, 's, 'a>(
                 sticky: 0,
             }),
             ..default()
-        });
+        },
+    ));
     cmds
 }
 
@@ -86,43 +87,37 @@ pub fn hammer<'w, 's, 'a>(
     custom_materials: &mut ResMut<Assets<CustomMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
-    let mut cmds = commands.spawn();
+    let mut cmds = commands.spawn_empty();
     let handle_thickness = radius * 0.2;
     let head_thickness = radius * 0.25;
     let head_length = radius * 0.75;
-    cmds.insert(RigidBody::Dynamic)
-        .with_children(|children| {
-            children
-                .spawn()
-                .insert(Restitution::coefficient(0.2))
-                .insert(ActiveEvents::COLLISION_EVENTS)
-                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                .insert(Collider::cuboid(head_length, head_thickness))
-                .insert(ColliderMassProperties::Density(3.5))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(
-                    0.,
-                    radius - radius * 0.3,
-                    0.,
-                )));
-            children
-                .spawn()
-                .insert(Restitution::coefficient(0.5))
-                .insert(ActiveEvents::COLLISION_EVENTS)
-                .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-                .insert(Collider::cuboid(
-                    handle_thickness,
-                    radius - 0.5 * head_thickness,
-                ))
-                .insert(ColliderMassProperties::Density(0.8))
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(
-                    0.0,
-                    -0.5 * head_thickness - radius * 0.3,
-                    0.,
-                )));
-        })
-        .insert(Ccd::enabled())
-        .insert(DAMPING)
-        .insert_bundle(MaterialMesh2dBundle {
+    cmds.with_children(|children| {
+        children.spawn((
+            Restitution::coefficient(0.2),
+            ActiveEvents::COLLISION_EVENTS,
+            ActiveHooks::FILTER_CONTACT_PAIRS,
+            Collider::cuboid(head_length, head_thickness),
+            ColliderMassProperties::Density(3.5),
+            TransformBundle::from(Transform::from_xyz(0., radius - radius * 0.3, 0.)),
+        ));
+        children.spawn((
+            Restitution::coefficient(0.5),
+            ActiveEvents::COLLISION_EVENTS,
+            ActiveHooks::FILTER_CONTACT_PAIRS,
+            Collider::cuboid(handle_thickness, radius - 0.5 * head_thickness),
+            ColliderMassProperties::Density(0.8),
+            TransformBundle::from(Transform::from_xyz(
+                0.0,
+                -0.5 * head_thickness - radius * 0.3,
+                0.,
+            )),
+        ));
+    })
+    .insert((
+        RigidBody::Dynamic,
+        Ccd::enabled(),
+        DAMPING,
+        MaterialMesh2dBundle {
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
                 .into(),
@@ -132,7 +127,8 @@ pub fn hammer<'w, 's, 'a>(
                 sticky: 0,
             }),
             ..default()
-        });
+        },
+    ));
     cmds
 }
 
@@ -144,12 +140,13 @@ pub fn shoe<'w, 's, 'a>(
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mid = Vec2::new(radius, radius);
-    let mut cmds = commands.spawn();
+    let mut cmds = commands.spawn_empty();
 
-    cmds.insert(RigidBody::Dynamic)
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-        .insert(Collider::convex_decomposition(
+    cmds.insert((
+        RigidBody::Dynamic,
+        ActiveEvents::COLLISION_EVENTS,
+        ActiveHooks::FILTER_CONTACT_PAIRS,
+        Collider::convex_decomposition(
             &[
                 Vec2::new(0., 0.) - mid,
                 Vec2::new(0., 2. * radius) - mid,
@@ -159,12 +156,12 @@ pub fn shoe<'w, 's, 'a>(
                 Vec2::new(2. * radius, 0.) - mid,
             ],
             &[[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]],
-        ))
-        .insert(Restitution::coefficient(1.))
-        .insert(ColliderMassProperties::Density(1.15))
-        .insert(Ccd::enabled())
-        .insert(DAMPING)
-        .insert_bundle(MaterialMesh2dBundle {
+        ),
+        Restitution::coefficient(1.),
+        ColliderMassProperties::Density(1.15),
+        Ccd::enabled(),
+        DAMPING,
+        MaterialMesh2dBundle {
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 2.) * radius)))
                 .into(),
@@ -174,7 +171,8 @@ pub fn shoe<'w, 's, 'a>(
                 sticky: 0,
             }),
             ..default()
-        });
+        },
+    ));
     cmds
 }
 

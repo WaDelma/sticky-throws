@@ -16,7 +16,7 @@ use bevy::{
     reflect::TypeUuid,
     render::{
         render_resource::{AsBindGroup, ShaderRef},
-        texture::{ImageSampler, ImageSettings},
+        texture::ImageSampler,
     },
     sprite::{Material2d, MaterialMesh2dBundle},
     utils::{HashMap, HashSet},
@@ -79,76 +79,67 @@ fn handle_death(
 #[derive(Component)]
 pub struct OnGame;
 
-fn setup_graphics(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut settings: ResMut<ImageSettings>,
-) {
-    settings.default_sampler.address_mode_u = AddressMode::ClampToBorder;
-    settings.default_sampler.address_mode_v = AddressMode::ClampToBorder;
-    settings.default_sampler.border_color = Some(SamplerBorderColor::TransparentBlack);
-
+fn setup_graphics(mut commands: Commands, asset_server: Res<AssetServer>) {
     let style = TextStyle {
         font: asset_server.load("fonts/MajorMonoDisplay-Regular.ttf"),
         font_size: 50.0,
         color: Color::WHITE,
     };
-    commands
-        .spawn_bundle(
-            TextBundle::from_sections([
-                TextSection {
-                    value: "Score:\n".to_owned(),
-                    style: style.clone(),
-                },
-                TextSection {
-                    value: "0".to_owned(),
-                    style: style.clone(),
-                },
-            ])
-            .with_text_alignment(TextAlignment::TOP_LEFT)
-            .with_style(Style {
-                align_self: AlignSelf::FlexEnd,
-                position_type: PositionType::Absolute,
-                position: UiRect {
-                    left: Val::Px(25.),
-                    ..default()
-                },
+    commands.spawn((
+        TextBundle::from_sections([
+            TextSection {
+                value: "Score:\n".to_owned(),
+                style: style.clone(),
+            },
+            TextSection {
+                value: "0".to_owned(),
+                style: style.clone(),
+            },
+        ])
+        .with_text_alignment(TextAlignment::TOP_LEFT)
+        .with_style(Style {
+            align_self: AlignSelf::FlexEnd,
+            position_type: PositionType::Absolute,
+            position: UiRect {
+                left: Val::Px(25.),
+                top: Val::Percent(0.),
                 ..default()
-            }),
-        )
-        .insert(ScoreText)
-        .insert(OnGame);
+            },
+            ..default()
+        }),
+        ScoreText,
+        OnGame,
+    ));
 
-    commands
-        .spawn_bundle(
-            TextBundle::from_sections([
-                TextSection {
-                    value: "Lives:\n".to_owned(),
-                    style: style.clone(),
+    commands.spawn((
+        TextBundle::from_sections([
+            TextSection {
+                value: "Lives:\n".to_owned(),
+                style: style.clone(),
+            },
+            TextSection {
+                value: "".to_owned(),
+                style: TextStyle {
+                    font: asset_server.load("fonts/NotoEmoji-VariableFont_wght.ttf"),
+                    font_size: 30.0,
+                    color: Color::PINK,
                 },
-                TextSection {
-                    value: "".to_owned(),
-                    style: TextStyle {
-                        font: asset_server.load("fonts/NotoEmoji-VariableFont_wght.ttf"),
-                        font_size: 30.0,
-                        color: Color::PINK,
-                    },
-                },
-            ])
-            .with_text_alignment(TextAlignment::TOP_LEFT)
-            .with_style(Style {
-                align_self: AlignSelf::FlexEnd,
-                position_type: PositionType::Absolute,
-                position: UiRect {
-                    left: Val::Px(25.),
-                    top: Val::Percent(10.),
-                    ..default()
-                },
+            },
+        ])
+        .with_text_alignment(TextAlignment::TOP_LEFT)
+        .with_style(Style {
+            align_self: AlignSelf::FlexEnd,
+            position_type: PositionType::Absolute,
+            position: UiRect {
+                left: Val::Px(25.),
+                top: Val::Percent(10.),
                 ..default()
-            }),
-        )
-        .insert(LivesText)
-        .insert(OnGame);
+            },
+            ..default()
+        }),
+        LivesText,
+        OnGame,
+    ));
 }
 
 #[derive(Component)]
@@ -205,37 +196,36 @@ fn setup_game(
     // });
 
     commands
-        .spawn()
-        .insert(Player {
-            lives: 9,
-            score: 0,
-            hold_timer: Timer::new(Duration::from_secs_f32(1.), false),
-            cooldown_timer: Timer::new(Duration::from_millis(200), false),
-            power_interval: Timer::new(Duration::from_millis(10), true),
-            disables: HashSet::new(),
-            prev_mouse: None,
-        })
+        .spawn((
+            Player {
+                lives: 9,
+                score: 0,
+                hold_timer: Timer::new(Duration::from_secs_f32(1.), TimerMode::Once),
+                cooldown_timer: Timer::new(Duration::from_millis(200), TimerMode::Once),
+                power_interval: Timer::new(Duration::from_millis(10), TimerMode::Repeating),
+                disables: HashSet::new(),
+                prev_mouse: None,
+            },
+            TransformBundle::from(Transform::from_xyz(SOURCE.x, SOURCE.y, 0.)),
+            OnGame,
+        ))
         .with_children(|child_builder| {
-            child_builder
-                .spawn()
-                .insert(RigidBody::Fixed)
-                .insert(Sensor)
-                .insert(Collider::ball(200.))
-                .insert(Disabler)
-                .insert_bundle(TransformBundle::from(Transform::from_xyz(0., 0., 0.)));
-        })
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(
-            SOURCE.x, SOURCE.y, 0.,
-        )))
-        .insert(OnGame);
+            child_builder.spawn((
+                RigidBody::Fixed,
+                Sensor,
+                Collider::ball(200.),
+                Disabler,
+                TransformBundle::from(Transform::from_xyz(0., 0., 0.)),
+            ));
+        });
 
-    commands
-        .spawn()
-        .insert(StuckItems {
+    commands.spawn((
+        StuckItems {
             union_find: Mutex::new(QuickFindUf::from_iter(None)),
             map: HashMap::new(),
-        })
-        .insert(OnGame);
+        },
+        OnGame,
+    ));
 
     let mut cur = Current {
         current: None,
@@ -253,10 +243,10 @@ fn setup_game(
     }
     commands.insert_resource(cur);
     commands.insert_resource(ThrowIndicator {
-        timer: Timer::from_seconds(0.1, true),
+        timer: Timer::from_seconds(0.1, TimerMode::Repeating),
     });
     commands.insert_resource(ItemDropTimer {
-        timer: Timer::from_seconds(2., true),
+        timer: Timer::from_seconds(2., TimerMode::Repeating),
         rng: SmallRng::from_entropy(),
     });
 }
@@ -278,44 +268,44 @@ fn setup_physics(
 
     // collision_test::test_collisions(commands);
 
-    commands
-        .spawn()
-        .insert(Collider::cuboid(1000.0, 25.0))
-        .insert(Destroyer)
-        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -800.0, 0.0)))
-        .insert(OnGame);
+    commands.spawn((
+        Collider::cuboid(1000.0, 25.0),
+        Destroyer,
+        TransformBundle::from(Transform::from_xyz(0.0, -800.0, 0.0)),
+        OnGame,
+    ));
 
     // TODO: Make this repeat
     let texture_handle = asset_server.load("bricks.png");
     let mesh = Mesh::from(shape::Quad::new(2. * Vec2::new(20.0, 575.0)));
 
-    commands
-        .spawn()
-        .insert(Collider::cuboid(20.0, 700.0))
-        .insert(Restitution::coefficient(4.))
-        .insert(Wall)
-        .insert_bundle(MaterialMesh2dBundle {
+    commands.spawn((
+        Collider::cuboid(20.0, 700.0),
+        Restitution::coefficient(4.),
+        Wall,
+        OnGame,
+        MaterialMesh2dBundle {
             mesh: meshes.add(mesh.clone()).into(),
             material: materials.add(ColorMaterial::from(texture_handle.clone())),
             transform: Transform::from_xyz(-750.0, 0.0, 0.0),
             // .with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
             ..default()
-        })
-        .insert(OnGame);
+        },
+    ));
 
-    commands
-        .spawn()
-        .insert(Collider::cuboid(20.0, 700.0))
-        .insert(Restitution::coefficient(4.))
-        .insert(Wall)
-        .insert_bundle(MaterialMesh2dBundle {
+    commands.spawn((
+        Collider::cuboid(20.0, 700.0),
+        Restitution::coefficient(4.),
+        Wall,
+        OnGame,
+        MaterialMesh2dBundle {
             mesh: meshes.add(mesh).into(),
             material: materials.add(ColorMaterial::from(texture_handle)),
             transform: Transform::from_xyz(750.0, 0.0, 0.0),
             // .with_rotation(Quat::from_rotation_z(TAU * 0.55)),
             ..default()
-        })
-        .insert(OnGame);
+        },
+    ));
 
     // TODO: Create AI that throws items
     shoe(
@@ -325,19 +315,18 @@ fn setup_physics(
         &mut custom_materials,
         50.,
     )
-    .insert_bundle(TransformBundle::from(Transform::from_xyz(
-        ENEMY_SOURCE.x,
-        ENEMY_SOURCE.y,
-        0.0,
-    )))
-    .insert(Velocity {
-        linvel: Vec2::new(-100.0, 150.0),
-        angvel: 0.,
-    })
-    .insert(Throwable::new(None, true))
-    .insert(OnGame);
+    .insert((
+        TransformBundle::from(Transform::from_xyz(ENEMY_SOURCE.x, ENEMY_SOURCE.y, 0.0)),
+        Velocity {
+            linvel: Vec2::new(-100.0, 150.0),
+            angvel: 0.,
+        },
+        Throwable::new(None, true),
+        OnGame,
+    ));
 }
 
+#[derive(Resource)]
 pub struct Current {
     pub current: Option<Entity>,
     pub next: VecDeque<Entity>,
@@ -362,6 +351,7 @@ fn handle_death_timer(
     }
 }
 
+#[derive(Resource)]
 pub struct ItemDropTimer {
     timer: Timer,
     rng: SmallRng,
@@ -387,13 +377,16 @@ fn handle_item_dropping(
             &mut meshes,
             &mut custom_materials,
         )
-        .insert_bundle(TransformBundle::from(transform))
-        .insert(Throwable::new(None, true))
-        .insert(ExternalImpulse {
-            impulse: Vec2::ZERO,
-            torque_impulse: timer.rng.gen_range(-angle..=angle),
-        })
-        .insert(OnGame);
+        .insert((
+            TransformBundle::from(transform),
+            GravityScale(0.8),
+            Throwable::new(None, true),
+            ExternalImpulse {
+                impulse: Vec2::ZERO,
+                torque_impulse: timer.rng.gen_range(-angle..=angle),
+            },
+            OnGame,
+        ));
     }
 }
 

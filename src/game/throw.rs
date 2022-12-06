@@ -47,6 +47,7 @@ pub struct Player {
     pub prev_mouse: Option<Vec2>,
 }
 
+#[derive(Resource)]
 pub struct ThrowIndicator {
     pub timer: Timer,
 }
@@ -63,12 +64,13 @@ pub fn handle_throwing(
     mut indicator: ResMut<ThrowIndicator>,
     windows: Res<Windows>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    (restitutions, collider_mass_props, colliders, transforms, global_transforms): (
+    (restitutions, collider_mass_props, colliders, transforms, global_transforms, velocities): (
         Query<&Restitution>,
         Query<&ColliderMassProperties>,
         Query<&Collider>,
         Query<&Transform>,
         Query<&GlobalTransform>,
+        Query<&Velocity>,
     ),
     childrens: Query<&Children>,
     mut players: Query<(&mut Player, &Transform, Entity)>,
@@ -110,11 +112,20 @@ pub fn handle_throwing(
                         let prev_target = player.prev_mouse.unwrap_or(target);
                         let from = (prev_target - pos.translation.xy()).normalize_or_zero();
                         let to = (target - pos.translation.xy()).normalize_or_zero();
-                        let torque_impulse = from.angle_between(to) * 0.3;
-                        commands.entity(cur).insert(ExternalImpulse {
-                            impulse: Vec2::ZERO,
-                            torque_impulse,
-                        });
+
+                        if let Ok(velocity) = velocities.get(cur) {
+                            let torque_impulse = from.angle_between(to) * 0.3;
+                            let max = 20.;
+                            let torque_impulse = if (torque_impulse + velocity.angvel).abs() > max {
+                                0.
+                            } else {
+                                torque_impulse
+                            };
+                            commands.entity(cur).insert(ExternalImpulse {
+                                impulse: Vec2::ZERO,
+                                torque_impulse,
+                            });
+                        }
 
                         player.prev_mouse = Some(target);
                     }
@@ -184,31 +195,33 @@ fn spawn_indicator(
     collider_mass_props: &Query<&ColliderMassProperties>,
 ) {
     commands
-        .spawn()
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(150., 150.) * indicator_size),
+        .spawn((
+            SpriteBundle {
+                sprite: Sprite {
+                    custom_size: Some(Vec2::new(150., 150.) * indicator_size),
+                    ..default()
+                },
+                texture: asset_server.load("indicator.png"),
                 ..default()
             },
-            texture: asset_server.load("indicator.png"),
-            ..default()
-        })
-        .insert(RigidBody::Dynamic)
-        .insert(Ghost(cur))
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
-        .insert(DeathTimer(Timer::new(Duration::from_secs_f32(0.5), false)))
-        .insert(ExternalImpulse {
-            impulse,
-            torque_impulse: 0.,
-        })
+            RigidBody::Dynamic,
+            Ghost(cur),
+            ActiveEvents::COLLISION_EVENTS,
+            ActiveHooks::FILTER_CONTACT_PAIRS,
+            DeathTimer(Timer::new(Duration::from_secs_f32(0.5), TimerMode::Once)),
+            ExternalImpulse {
+                impulse,
+                torque_impulse: 0.,
+            },
+        ))
         .with_children(|children| {
             if let Ok(cur_children) = childrens.get(cur) {
                 for &child in cur_children {
                     children
-                        .spawn()
-                        .insert(ActiveEvents::COLLISION_EVENTS)
-                        .insert(ActiveHooks::FILTER_CONTACT_PAIRS)
+                        .spawn((
+                            ActiveEvents::COLLISION_EVENTS,
+                            ActiveHooks::FILTER_CONTACT_PAIRS,
+                        ))
                         .maybe_insert(transforms.get(child).ok().cloned())
                         .maybe_insert(global_transforms.get(child).ok().cloned())
                         .maybe_insert(restitutions.get(child).ok().cloned())
@@ -264,7 +277,7 @@ pub fn generate_item(
         custom_materials,
     )
     .insert(GravityScale(0.))
-    .insert_bundle(TransformBundle::from(transform))
+    .insert(TransformBundle::from(transform))
     .insert(OnGame)
     .insert(IgnoreCollisions)
     .id();

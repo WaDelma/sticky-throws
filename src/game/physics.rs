@@ -277,7 +277,7 @@ pub fn handle_collisions(
                                 .local_basis2(lb2);
 
                             commands.entity(e2).add_children(|builder| {
-                                builder.spawn().insert(ImpulseJoint::new(e1, joint));
+                                builder.spawn(ImpulseJoint::new(e1, joint));
                             });
 
                             let i1 = *stuck_items.map.entry(e1).or_insert_with(|| {
@@ -406,14 +406,14 @@ fn visualise_scoring(
     let question_mark = "?".repeat(fifties % 2);
     let emphasis = format!("{exclamation_marks}{question_mark}");
     commands
-        .spawn_bundle(Text2dBundle {
+        .spawn(Text2dBundle {
             text: Text::from_section(format!("{mult}{points}{emphasis}"), text_style.clone())
                 .with_alignment(text_alignment),
             transform: Transform::from_xyz(pos.x, pos.y, 10.),
             ..default()
         })
         .insert(ScoringEffect { multiplier, points })
-        .insert(DeathTimer(Timer::from_seconds(1., false)));
+        .insert(DeathTimer(Timer::from_seconds(1., TimerMode::Once)));
 }
 
 fn fibonacci(n: usize) -> usize {

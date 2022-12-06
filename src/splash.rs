@@ -19,7 +19,7 @@ impl Plugin for SplashPlugin {
 #[derive(Component)]
 struct OnSplashScreen;
 
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Resource)]
 struct SplashTimer(Timer);
 
 fn splash_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -30,20 +30,20 @@ fn splash_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     };
 
     commands
-        .spawn_bundle(NodeBundle {
+        .spawn(NodeBundle {
             style: Style {
                 margin: UiRect::all(Val::Auto),
                 flex_direction: FlexDirection::ColumnReverse,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            color: Color::DARK_GRAY.into(),
+            background_color: Color::DARK_GRAY.into(),
             ..default()
         })
         .insert(OnSplashScreen)
         .with_children(|parent| {
             // Display the game name
-            parent.spawn_bundle(
+            parent.spawn(
                 TextBundle::from_sections([
                     TextSection {
                         value: "🍊".to_owned(),
@@ -92,7 +92,7 @@ fn splash_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 }),
             );
         });
-    commands.insert_resource(SplashTimer(Timer::from_seconds(2.0, false)));
+    commands.insert_resource(SplashTimer(Timer::from_seconds(2.0, TimerMode::Once)));
 }
 
 fn countdown(
