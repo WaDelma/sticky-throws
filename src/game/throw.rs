@@ -15,7 +15,7 @@ use bevy::{
 };
 use bevy_rapier2d::prelude::*;
 
-use super::{items::random_item, CustomMaterial};
+use super::{items::random_item, StickyMaterial};
 
 #[derive(Clone, Debug, Component)]
 pub struct Throwable {
@@ -75,7 +75,7 @@ pub fn handle_throwing(
     childrens: Query<&Children>,
     mut players: Query<(&mut Player, &Transform, Entity)>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut custom_materials: ResMut<Assets<CustomMaterial>>,
+    mut custom_materials: ResMut<Assets<StickyMaterial>>,
 ) {
     let (camera, camera_transform) = cameras.single();
 
@@ -264,7 +264,7 @@ pub fn generate_item(
     commands: &mut Commands,
     asset_server: &AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
     current: &mut Current,
 ) {
     let pos = STORAGE + Vec2::new(0., 75.) * current.next.len() as f32;

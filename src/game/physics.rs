@@ -23,6 +23,19 @@ pub struct StuckItems {
     pub union_find: Mutex<QuickFindUf<EntityWrapper>>,
     pub map: HashMap<Entity, usize>,
 }
+impl StuckItems {
+    fn add_entity(&mut self, e: Entity) -> usize {
+        *self.map.entry(e).or_insert_with(|| {
+            self.union_find
+                .lock()
+                .unwrap()
+                .insert(EntityWrapper(e, default()))
+        })
+    }
+    fn union(&self, key0: usize, key1: usize) {
+        self.union_find.lock().unwrap().union(key0, key1);
+    }
+}
 
 // TODO: `UnionBySizeRank` chosen for no particular reason. `UnionBySizeRank` is broken https://github.com/gifnksm/union-find-rs/issues/12
 pub struct EntityWrapper(Entity, UnionBySizeRank);
@@ -280,28 +293,18 @@ pub fn handle_collisions(
                                 builder.spawn(ImpulseJoint::new(e1, joint));
                             });
 
-                            let i1 = *stuck_items.map.entry(e1).or_insert_with(|| {
-                                stuck_items
-                                    .union_find
-                                    .lock()
-                                    .unwrap()
-                                    .insert(EntityWrapper(e1, default()))
-                            });
-                            let i2 = *stuck_items.map.entry(e2).or_insert_with(|| {
-                                stuck_items
-                                    .union_find
-                                    .lock()
-                                    .unwrap()
-                                    .insert(EntityWrapper(e2, default()))
-                            });
-                            stuck_items.union_find.lock().unwrap().union(i1, i2);
+                            let i1 = stuck_items.add_entity(e1);
+                            let i2 = stuck_items.add_entity(e2);
+                            stuck_items.union(i1, i2);
 
                             // Add score
                             if let Ok([mut tr1, mut tr2]) = throwables.get_many_mut([e1, e2]) {
-                                let mut handle = |throwable: &Throwable, e| {
+                                let mut handle = |throwable: &mut Throwable, e| {
+                                    throwable.sticky = true;
                                     if throwable.stuck {
                                         return;
                                     }
+                                    throwable.stuck = true;
                                     if let Some(mut player) =
                                         throwable.player.and_then(|p| players.get_mut(p).ok())
                                     {
@@ -329,50 +332,42 @@ pub fn handle_collisions(
                                         }
                                     }
                                 };
-                                handle(&tr1, e1);
-                                handle(&tr2, e2);
-                                tr1.sticky = true;
-                                tr2.sticky = true;
-                                tr1.stuck = true;
-                                tr2.stuck = true;
+                                handle(&mut tr1, e1);
+                                handle(&mut tr2, e2);
                             }
                         }
                     }
                 } else {
-                    if let Some((throwable, e)) = ta {
-                        if destroyers.get(b).is_ok() {
-                            commands.entity(e).despawn_recursive();
-                            if !throwable.stuck {
-                                if let Some(mut player) =
-                                    throwable.player.and_then(|e| players.get_mut(e).ok())
-                                {
-                                    player.lives -= 1;
+                    let mut destroy = |t: Option<(&Throwable, Entity)>, entity| {
+                        if let Some((throwable, e)) = t {
+                            if destroyers.get(entity).is_ok() {
+                                commands.entity(e).despawn_recursive();
+                                if !throwable.stuck {
+                                    if let Some(mut player) =
+                                        throwable.player.and_then(|e| players.get_mut(e).ok())
+                                    {
+                                        player.lives -= 1;
+                                    } else {
+                                        commands.add(|world: &mut World| {
+                                            for mut player in
+                                                world.query::<&mut Player>().iter_mut(world)
+                                            {
+                                                player.score -= 5;
+                                            }
+                                        });
+                                    }
                                 }
                             }
-                        }
-                        if walls.get(b).is_ok() {
-                            commands.add(move |world: &mut World| {
-                                world.get_mut::<Throwable>(e).unwrap().multiplier += 1;
-                            });
-                        }
-                    }
-                    if let Some((throwable, e)) = tb {
-                        if destroyers.get(a).is_ok() {
-                            commands.entity(e).despawn_recursive();
-                            if !throwable.stuck {
-                                if let Some(mut player) =
-                                    throwable.player.and_then(|e| players.get_mut(e).ok())
-                                {
-                                    player.lives -= 1;
-                                }
+                            if walls.get(entity).is_ok() {
+                                commands.add(move |world: &mut World| {
+                                    world.get_mut::<Throwable>(e).unwrap().multiplier += 1;
+                                });
                             }
                         }
-                        if walls.get(a).is_ok() {
-                            commands.add(move |world: &mut World| {
-                                world.get_mut::<Throwable>(e).unwrap().multiplier += 1;
-                            });
-                        }
-                    }
+                    };
+
+                    destroy(ta, b);
+                    destroy(tb, a);
                     continue;
                 }
             }

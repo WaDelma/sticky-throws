@@ -1,6 +1,7 @@
 use self::{
     items::{random_item, shoe},
     physics::{handle_collisions, Hooks, StuckItems},
+    shaders::{handle_stickiness_effect, StickyMaterial, TilingMaterial},
     throw::{
         generate_item, handle_disabling, handle_stored_items, handle_throwable_removals,
         handle_throwing, Player, ThrowIndicator, Throwable,
@@ -13,22 +14,19 @@ use super::GameState;
 use bevy::{
     audio::AudioSink,
     prelude::*,
-    reflect::TypeUuid,
-    render::{
-        render_resource::{AsBindGroup, ShaderRef},
-        texture::ImageSampler,
-    },
-    sprite::{Material2d, MaterialMesh2dBundle},
+    render::texture::ImageSampler,
+    sprite::MaterialMesh2dBundle,
     utils::{HashMap, HashSet},
 };
 use bevy_rapier2d::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use union_find::QuickFindUf;
-use wgpu::{AddressMode, SamplerBorderColor};
+use wgpu::{AddressMode, SamplerBorderColor, SamplerDescriptor};
 
 mod collision_test;
 mod items;
 pub mod physics;
+pub mod shaders;
 mod throw;
 
 pub struct GamePlugin;
@@ -43,6 +41,7 @@ impl Plugin for GamePlugin {
         )
         .add_system_set(
             SystemSet::on_update(GameState::Game)
+                .with_system(modify_texture)
                 .with_system(handle_collisions)
                 .with_system(handle_stored_items)
                 .with_system(handle_throwing.after(handle_stored_items))
@@ -69,8 +68,9 @@ fn handle_death(
 ) {
     for player in players.iter() {
         if player.lives == 0 {
-            let handle = music.0.take().unwrap();
-            audio_sinks.get(&handle).unwrap().stop();
+            if let Some(music) = music.0.take() {
+                audio_sinks.get(&music).unwrap().stop();
+            }
             game_state.set(GameState::Splash).unwrap();
         }
     }
@@ -80,9 +80,10 @@ fn handle_death(
 pub struct OnGame;
 
 fn setup_graphics(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let scale = 0.5;
     let style = TextStyle {
         font: asset_server.load("fonts/MajorMonoDisplay-Regular.ttf"),
-        font_size: 50.0,
+        font_size: 50.0 * scale,
         color: Color::WHITE,
     };
     commands.spawn((
@@ -121,7 +122,7 @@ fn setup_graphics(mut commands: Commands, asset_server: Res<AssetServer>) {
                 value: "".to_owned(),
                 style: TextStyle {
                     font: asset_server.load("fonts/NotoEmoji-VariableFont_wght.ttf"),
-                    font_size: 30.0,
+                    font_size: 30.0 * scale,
                     color: Color::PINK,
                 },
             },
@@ -181,7 +182,7 @@ fn setup_game(
     audio_sinks: Res<Assets<AudioSink>>,
     mut music: ResMut<Music>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut custom_materials: ResMut<Assets<CustomMaterial>>,
+    mut custom_materials: ResMut<Assets<StickyMaterial>>,
     audio: Res<Audio>,
 ) {
     // if let Some(handle) = music.0.take() {
@@ -257,11 +258,23 @@ pub struct Destroyer;
 #[derive(Component)]
 pub struct Wall;
 
+fn modify_texture(materials: Res<Assets<TilingMaterial>>, mut textures: ResMut<Assets<Image>>) {
+    for (_, material) in materials.iter() {
+        if let Some(tex) = textures.get_mut(&material.color_texture) {
+            tex.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
+                address_mode_u: AddressMode::Repeat,
+                address_mode_v: AddressMode::Repeat,
+                ..default()
+            });
+        }
+    }
+}
+
 fn setup_physics(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut custom_materials: ResMut<Assets<CustomMaterial>>,
+    mut materials: ResMut<Assets<TilingMaterial>>,
+    mut custom_materials: ResMut<Assets<StickyMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
     commands.insert_resource(PhysicsHooksWithQueryResource(Box::new(Hooks)));
@@ -275,7 +288,6 @@ fn setup_physics(
         OnGame,
     ));
 
-    // TODO: Make this repeat
     let texture_handle = asset_server.load("bricks.png");
     let mesh = Mesh::from(shape::Quad::new(2. * Vec2::new(20.0, 575.0)));
 
@@ -286,7 +298,10 @@ fn setup_physics(
         OnGame,
         MaterialMesh2dBundle {
             mesh: meshes.add(mesh.clone()).into(),
-            material: materials.add(ColorMaterial::from(texture_handle.clone())),
+            material: materials.add(TilingMaterial::new(
+                texture_handle.clone(),
+                [20., 700., 0., 0.],
+            )),
             transform: Transform::from_xyz(-750.0, 0.0, 0.0),
             // .with_rotation(Quat::from_rotation_z(-TAU * 0.55)),
             ..default()
@@ -300,7 +315,7 @@ fn setup_physics(
         OnGame,
         MaterialMesh2dBundle {
             mesh: meshes.add(mesh).into(),
-            material: materials.add(ColorMaterial::from(texture_handle)),
+            material: materials.add(TilingMaterial::new(texture_handle, [20., 700., 0., 0.])),
             transform: Transform::from_xyz(750.0, 0.0, 0.0),
             // .with_rotation(Quat::from_rotation_z(TAU * 0.55)),
             ..default()
@@ -360,7 +375,7 @@ fn handle_item_dropping(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut custom_materials: ResMut<Assets<CustomMaterial>>,
+    mut custom_materials: ResMut<Assets<StickyMaterial>>,
     time: Res<Time>,
     mut timer: ResMut<ItemDropTimer>,
 ) {
@@ -403,41 +418,6 @@ fn handle_scoring_effect(mut scoring_text: Query<(&mut Text, &ScoringEffect, &De
             style.color = Color::PURPLE;
         }
     }
-}
-
-#[derive(Component)]
-struct StickyEffect;
-fn handle_stickiness_effect(
-    throwables: Query<(&Throwable, &Handle<CustomMaterial>)>,
-    mut custom_materials: ResMut<Assets<CustomMaterial>>,
-) {
-    for (throwable, material) in throwables.iter() {
-        if let Some(material) = custom_materials.get_mut(material) {
-            if throwable.sticky {
-                material.sticky = 1;
-            } else {
-                material.sticky = 0;
-            }
-        }
-    }
-}
-
-impl Material2d for CustomMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/sticky.wgsl".into()
-    }
-}
-
-#[derive(AsBindGroup, TypeUuid, Debug, Clone)]
-#[uuid = "f690fdae-d598-45ab-8225-97e2a3f056e0"]
-pub struct CustomMaterial {
-    #[uniform(0)]
-    color: Color,
-    #[uniform(1)]
-    sticky: i32,
-    #[texture(2)]
-    #[sampler(3)]
-    color_texture: Handle<Image>,
 }
 
 // TODO: There was default sampler, but didn't work

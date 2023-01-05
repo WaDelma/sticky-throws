@@ -3,7 +3,8 @@ use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::render::texture::ImageSampler;
 use bevy::{prelude::*, sprite::Material2dPlugin, window::PresentMode};
 use bevy_rapier2d::prelude::*;
-use game::{physics::PhysicsData, CustomMaterial};
+use game::physics::PhysicsData;
+use game::shaders::{StickyMaterial, TilingMaterial};
 use wgpu::{AddressMode, SamplerBorderColor, SamplerDescriptor};
 
 mod game;
@@ -56,7 +57,8 @@ fn main() {
         // .add_plugin(FrameTimeDiagnosticsPlugin::default())
         // .add_plugin(menu::MenuPlugin)
         .add_plugin(RapierPhysicsPlugin::<PhysicsData>::pixels_per_meter(100.0))
-        .add_plugin(Material2dPlugin::<CustomMaterial>::default())
+        .add_plugin(Material2dPlugin::<StickyMaterial>::default())
+        .add_plugin(Material2dPlugin::<TilingMaterial>::default())
         // .add_plugin(RapierDebugRenderPlugin::default())
         // .add_plugin(FrameTimeDiagnosticsPlugin::default())
         // .add_plugin(LogDiagnosticsPlugin::default())

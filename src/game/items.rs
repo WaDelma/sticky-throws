@@ -2,7 +2,7 @@ use bevy::{ecs::system::EntityCommands, prelude::*, sprite::MaterialMesh2dBundle
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
-use super::CustomMaterial;
+use super::StickyMaterial;
 
 const DAMPING: Damping = Damping {
     linear_damping: 0.2,
@@ -13,7 +13,7 @@ pub fn orange<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn_empty();
@@ -35,7 +35,7 @@ pub fn orange<'w, 's, 'a>(
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
                 .into(),
-            material: custom_materials.add(CustomMaterial {
+            material: custom_materials.add(StickyMaterial {
                 color: Color::LIME_GREEN,
                 color_texture: asset_server.load("orange.png"),
                 sticky: 0,
@@ -50,7 +50,7 @@ pub fn cereal_box<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn_empty();
@@ -69,7 +69,7 @@ pub fn cereal_box<'w, 's, 'a>(
                     Vec2::new(0.75 * 2., 2.) * radius,
                 )))
                 .into(),
-            material: custom_materials.add(CustomMaterial {
+            material: custom_materials.add(StickyMaterial {
                 color: Color::LIME_GREEN,
                 color_texture: asset_server.load("cereal.png"),
                 sticky: 0,
@@ -84,7 +84,7 @@ pub fn hammer<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mut cmds = commands.spawn_empty();
@@ -121,7 +121,7 @@ pub fn hammer<'w, 's, 'a>(
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 3.) * radius)))
                 .into(),
-            material: custom_materials.add(CustomMaterial {
+            material: custom_materials.add(StickyMaterial {
                 color: Color::LIME_GREEN,
                 color_texture: asset_server.load("hammer.png"),
                 sticky: 0,
@@ -136,7 +136,7 @@ pub fn shoe<'w, 's, 'a>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
     radius: f32,
 ) -> EntityCommands<'w, 's, 'a> {
     let mid = Vec2::new(radius, radius);
@@ -165,7 +165,7 @@ pub fn shoe<'w, 's, 'a>(
             mesh: meshes
                 .add(Mesh::from(shape::Quad::new(Vec2::new(2., 2.) * radius)))
                 .into(),
-            material: custom_materials.add(CustomMaterial {
+            material: custom_materials.add(StickyMaterial {
                 color: Color::LIME_GREEN,
                 color_texture: asset_server.load("boot.png"),
                 sticky: 0,
@@ -181,7 +181,7 @@ pub fn random_item<'w, 's, 'a, R>(
     commands: &'a mut Commands<'w, 's>,
     asset_server: &'a AssetServer,
     meshes: &mut ResMut<Assets<Mesh>>,
-    custom_materials: &mut ResMut<Assets<CustomMaterial>>,
+    custom_materials: &mut ResMut<Assets<StickyMaterial>>,
 ) -> EntityCommands<'w, 's, 'a>
 where
     R: Rng,
